@@ -1,0 +1,61 @@
+{% extends "layout.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block main %}
+
+{% if dot_warnings %}
+    {% for w in dot_warnings %}
+    <div class="alert alert-danger">
+        <strong>DOT COMPLIANCE WARNING:</strong>
+        {{ w.year }} {{ w.make }} {{ w.model }} is overdue for its DOT annual inspection
+        (due {{ w.due_date }}). This vehicle may be at risk of a red tag or fine if operated.
+    </div>
+    {% endfor %}
+{% endif %}
+
+<h2>Dashboard</h2>
+
+<div class="row">
+    <div class="col-md-6">
+        <h4>Your Vehicles</h4>
+        {% if vehicles %}
+        <ul class="list-group">
+            {% for v in vehicles %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <a href="/vehicles/{{ v.id }}">{{ v.year }} {{ v.make }} {{ v.model }}</a>
+                {% if v.is_dot_regulated %}
+                <span class="badge bg-primary">DOT</span>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p>No vehicles yet. <a href="/vehicles">Add one</a>.</p>
+        {% endif %}
+    </div>
+
+    <div class="col-md-6">
+        <h4>Upcoming Reminders</h4>
+        {% if reminders %}
+        <ul class="list-group">
+            {% for r in reminders %}
+            <li class="list-group-item d-flex justify-content-between align-items-center
+                {% if r.bucket == 'overdue' %}list-group-item-danger
+                {% elif r.bucket == 'due_soon' %}list-group-item-warning
+                {% endif %}">
+                <span>
+                    {{ r.year }} {{ r.make }} {{ r.model }} —
+                    {{ r.reminder_type.replace('_', ' ')|title }} due {{ r.due_date }}
+                </span>
+                <form action="/reminders/{{ r.id }}/complete" method="post" class="m-0">
+                    <button class="btn btn-sm btn-outline-success" type="submit">Mark Done</button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p>No reminders set.</p>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "layout.html" %}
+{% block title %}Vehicles{% endblock %}
+{% block main %}
+
+<h2>Vehicles</h2>
+
+<table class="table">
+    <thead>
+        <tr><th>Year</th><th>Make</th><th>Model</th><th>Mileage</th><th>DOT?</th><th></th></tr>
+    </thead>
+    <tbody>
+        {% for v in vehicles %}
+        <tr>
+            <td>{{ v.year }}</td>
+            <td>{{ v.make }}</td>
+            <td>{{ v.model }}</td>
+            <td>{{ v.mileage }}</td>
+            <td>{% if v.is_dot_regulated %}<span class="badge bg-primary">DOT</span>{% endif %}</td>
+            <td><a href="/vehicles/{{ v.id }}">View</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h4>Add a Vehicle</h4>
+<form action="/vehicles" method="post" class="col-md-6">
+    <div class="row mb-2">
+        <div class="col"><input class="form-control" name="make" placeholder="Make" required></div>
+        <div class="col"><input class="form-control" name="model" placeholder="Model" required></div>
+        <div class="col"><input class="form-control" name="year" type="number" placeholder="Year" required></div>
+    </div>
+    <div class="mb-2">
+        <input class="form-control" name="vin" placeholder="VIN (optional)">
+    </div>
+    <div class="mb-2">
+        <input class="form-control" name="mileage" type="number" placeholder="Current mileage">
+    </div>
+    <div class="mb-2">
+        <input class="form-control" name="gvwr" type="number" placeholder="GVWR (lbs) — 26,001+ typically requires DOT/CDL">
+    </div>
+    <div class="form-check mb-3">
+        <input class="form-check-input" type="checkbox" name="is_dot_regulated" id="dotCheck">
+        <label class="form-check-label" for="dotCheck">
+            This vehicle requires a CDL and is subject to DOT regulations
+        </label>
+    </div>
+    <button class="btn btn-primary" type="submit">Add Vehicle</button>
+</form>
+
+{% endblock %}

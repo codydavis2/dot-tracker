@@ -1,0 +1,87 @@
+{% extends "layout.html" %}
+{% block title %}{{ vehicle.year }} {{ vehicle.make }} {{ vehicle.model }}{% endblock %}
+{% block main %}
+
+<h2>
+    {{ vehicle.year }} {{ vehicle.make }} {{ vehicle.model }}
+    {% if vehicle.is_dot_regulated %}<span class="badge bg-primary">DOT Regulated</span>{% endif %}
+</h2>
+<p class="text-muted">VIN: {{ vehicle.vin or "—" }} | Mileage: {{ vehicle.mileage }} | GVWR: {{ vehicle.gvwr or "—" }}</p>
+
+{% if vehicle.is_dot_regulated %}
+<div class="card mb-4">
+    <div class="card-header">DOT Details</div>
+    <div class="card-body">
+        {% if dot_details %}
+        <p>DOT #: {{ dot_details.dot_number or "—" }}</p>
+        <p>CDL Class Required: {{ dot_details.cdl_class_required or "—" }}</p>
+        <p>Last Annual Inspection: {{ dot_details.last_annual_inspection_date or "—" }}</p>
+        <p>Last Roadside Result: {{ dot_details.last_roadside_result or "—" }}</p>
+        {% endif %}
+        <!-- TODO: form to edit dot_details fields -->
+    </div>
+</div>
+{% endif %}
+
+<div class="row">
+    <div class="col-md-4">
+        <h4>Inspection Reminders</h4>
+        <ul class="list-group mb-3">
+            {% for r in reminders %}
+            <li class="list-group-item
+                {% if r.bucket == 'overdue' %}list-group-item-danger
+                {% elif r.bucket == 'due_soon' %}list-group-item-warning{% endif %}">
+                {{ r.reminder_type.replace('_', ' ')|title }} — due {{ r.due_date }} ({{ r.status }})
+            </li>
+            {% endfor %}
+        </ul>
+        <form action="/vehicles/{{ vehicle.id }}/reminders" method="post">
+            <select class="form-select mb-2" name="reminder_type">
+                <option value="dot_annual">DOT Annual Inspection</option>
+                <option value="pre_trip">Pre-Trip Inspection</option>
+                <option value="state_inspection">State Inspection</option>
+                <option value="other">Other</option>
+            </select>
+            <input class="form-control mb-2" type="date" name="due_date" required>
+            <button class="btn btn-sm btn-primary" type="submit">Add Reminder</button>
+        </form>
+    </div>
+
+    <div class="col-md-4">
+        <h4>Maintenance Log</h4>
+        <ul class="list-group mb-3">
+            {% for m in maintenance %}
+            <li class="list-group-item">
+                {{ m.log_date }} — {{ m.service_type }}
+                {% if m.cost %}({{ m.cost|usd }}){% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        <form action="/vehicles/{{ vehicle.id }}/maintenance" method="post">
+            <input class="form-control mb-2" name="service_type" placeholder="Service type" required>
+            <input class="form-control mb-2" type="date" name="log_date">
+            <input class="form-control mb-2" name="mileage_at_service" type="number" placeholder="Mileage">
+            <input class="form-control mb-2" name="cost" type="number" step="0.01" placeholder="Cost">
+            <textarea class="form-control mb-2" name="notes" placeholder="Notes"></textarea>
+            <button class="btn btn-sm btn-primary" type="submit">Log Service</button>
+        </form>
+    </div>
+
+    <div class="col-md-4">
+        <h4>DTC Codes</h4>
+        <ul class="list-group mb-3">
+            {% for d in dtc_codes %}
+            <li class="list-group-item {% if not d.resolved %}list-group-item-warning{% endif %}">
+                {{ d.code }} — {{ d.description }} ({{ d.date_logged }})
+            </li>
+            {% endfor %}
+        </ul>
+        <form action="/vehicles/{{ vehicle.id }}/dtc" method="post">
+            <input class="form-control mb-2" name="code" placeholder="e.g. P0420" required>
+            <input class="form-control mb-2" name="description" placeholder="Description (if code not in reference table)">
+            <button class="btn btn-sm btn-primary" type="submit">Log Code</button>
+        </form>
+    </div>
+</div>
+
+{% endblock %}

@@ -32,19 +32,78 @@
                 {% if r.bucket == 'overdue' %}list-group-item-danger
                 {% elif r.bucket == 'due_soon' %}list-group-item-warning{% endif %}">
                 {{ r.reminder_type.replace('_', ' ')|title }} — due {{ r.due_date }} ({{ r.status }})
+                {% if r.mechanic_name %}<br><small class="text-muted">Mechanic: {{ r.mechanic_name }}</small>{% endif %}
             </li>
             {% endfor %}
         </ul>
-        <form action="/vehicles/{{ vehicle.id }}/reminders" method="post">
-            <select class="form-select mb-2" name="reminder_type">
+        <form action="/vehicles/{{ vehicle.id }}/reminders" method="post" id="reminder-form">
+            <select class="form-select mb-2" name="reminder_type" id="reminder-type">
                 <option value="dot_annual">DOT Annual Inspection</option>
                 <option value="pre_trip">Pre-Trip Inspection</option>
-                <option value="state_inspection">State Inspection</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="quarterly">Quarterly</option>
                 <option value="other">Other</option>
             </select>
             <input class="form-control mb-2" type="date" name="due_date" required>
+            <input class="form-control mb-2" name="mechanic_name" placeholder="Assigned mechanic (optional)">
+            <select class="form-select mb-2" name="interval" id="reminder-interval">
+                <option value="none">Does not repeat</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+                <option value="custom">Custom interval&hellip;</option>
+            </select>
+            <div class="input-group mb-2 d-none" id="custom-interval-fields">
+                <span class="input-group-text">Every</span>
+                <input class="form-control" type="number" name="custom_value" min="1" value="1">
+                <select class="form-select" name="custom_unit">
+                    <option value="days">Days</option>
+                    <option value="weeks">Weeks</option>
+                    <option value="months">Months</option>
+                </select>
+            </div>
+            <div class="form-text mb-2 d-none" id="interval-hint">
+                Creates reminders every interval for the next 2 years.
+            </div>
             <button class="btn btn-sm btn-primary" type="submit">Add Reminder</button>
         </form>
+        <script>
+            (function () {
+                var typeSelect = document.getElementById("reminder-type");
+                var intervalSelect = document.getElementById("reminder-interval");
+                var customFields = document.getElementById("custom-interval-fields");
+                var customValue = customFields.querySelector("[name=custom_value]");
+                var customUnit = customFields.querySelector("[name=custom_unit]");
+                var hint = document.getElementById("interval-hint");
+
+                var autoInterval = {
+                    weekly: { interval: "weekly" },
+                    monthly: { interval: "monthly" },
+                    quarterly: { interval: "custom", custom_value: 3, custom_unit: "months" }
+                };
+
+                function refreshIntervalVisibility() {
+                    var isCustom = intervalSelect.value === "custom";
+                    var repeats = intervalSelect.value !== "none";
+                    customFields.classList.toggle("d-none", !isCustom);
+                    hint.classList.toggle("d-none", !repeats);
+                }
+
+                typeSelect.addEventListener("change", function () {
+                    var preset = autoInterval[typeSelect.value];
+                    if (!preset) return;
+                    intervalSelect.value = preset.interval;
+                    if (preset.interval === "custom") {
+                        customValue.value = preset.custom_value;
+                        customUnit.value = preset.custom_unit;
+                    }
+                    refreshIntervalVisibility();
+                });
+
+                intervalSelect.addEventListener("change", refreshIntervalVisibility);
+            })();
+        </script>
     </div>
 
     <div class="col-md-4">
@@ -54,17 +113,62 @@
             <li class="list-group-item">
                 {{ m.log_date }} — {{ m.service_type }}
                 {% if m.cost %}({{ m.cost|usd }}){% endif %}
+                {% if m.mechanic_name %}<br><small class="text-muted">Mechanic: {{ m.mechanic_name }}</small>{% endif %}
+                {% if m.parts %}
+                <br><small class="text-muted">Parts: {% for p in m.parts %}{{ p.part_name }}{% if p.quantity > 1 %} (x{{ p.quantity }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</small>
+                {% endif %}
             </li>
             {% endfor %}
         </ul>
-        <form action="/vehicles/{{ vehicle.id }}/maintenance" method="post">
+        <form action="/vehicles/{{ vehicle.id }}/maintenance" method="post" id="maintenance-form">
             <input class="form-control mb-2" name="service_type" placeholder="Service type" required>
             <input class="form-control mb-2" type="date" name="log_date">
             <input class="form-control mb-2" name="mileage_at_service" type="number" placeholder="Mileage">
             <input class="form-control mb-2" name="cost" type="number" step="0.01" placeholder="Cost">
+            <input class="form-control mb-2" name="mechanic_name" placeholder="Assigned mechanic (optional)">
             <textarea class="form-control mb-2" name="notes" placeholder="Notes"></textarea>
+
+            <label class="form-label mb-1">Parts Used</label>
+            <div id="parts-list">
+                <div class="input-group mb-2 part-row">
+                    <input class="form-control" name="part_name[]" placeholder="Part name">
+                    <input class="form-control" name="part_quantity[]" type="number" min="1" value="1" style="max-width: 5rem;">
+                    <button class="btn btn-outline-danger remove-part-btn" type="button">&times;</button>
+                </div>
+            </div>
+            <button class="btn btn-sm btn-secondary mb-2" type="button" id="add-part-btn">+ Add Part</button>
+            <br>
             <button class="btn btn-sm btn-primary" type="submit">Log Service</button>
         </form>
+        <script>
+            (function () {
+                var partsList = document.getElementById("parts-list");
+                var addBtn = document.getElementById("add-part-btn");
+
+                function wireRemove(row) {
+                    row.querySelector(".remove-part-btn").addEventListener("click", function () {
+                        if (partsList.querySelectorAll(".part-row").length > 1) {
+                            row.remove();
+                        } else {
+                            row.querySelectorAll("input").forEach(function (input) {
+                                input.value = input.type === "number" ? 1 : "";
+                            });
+                        }
+                    });
+                }
+
+                addBtn.addEventListener("click", function () {
+                    var row = partsList.querySelector(".part-row").cloneNode(true);
+                    row.querySelectorAll("input").forEach(function (input) {
+                        input.value = input.type === "number" ? 1 : "";
+                    });
+                    partsList.appendChild(row);
+                    wireRemove(row);
+                });
+
+                partsList.querySelectorAll(".part-row").forEach(wireRemove);
+            })();
+        </script>
     </div>
 
     <div class="col-md-4">

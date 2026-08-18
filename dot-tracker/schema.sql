@@ -42,7 +42,16 @@ CREATE TABLE maintenance_logs (
     mileage_at_service INTEGER,
     cost NUMERIC,
     notes TEXT,
+    mechanic_name TEXT,
     FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+);
+
+CREATE TABLE maintenance_parts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    maintenance_log_id INTEGER NOT NULL,
+    part_name TEXT NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (maintenance_log_id) REFERENCES maintenance_logs(id)
 );
 
 CREATE TABLE dtc_codes (
@@ -65,12 +74,16 @@ CREATE TABLE inspection_reminders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     vehicle_id INTEGER NOT NULL,
     reminder_type TEXT NOT NULL CHECK(
-        reminder_type IN ('dot_annual', 'pre_trip', 'state_inspection', 'other')
+        reminder_type IN (
+            'dot_annual', 'pre_trip',
+            'weekly', 'monthly', 'quarterly', 'other'
+        )
     ),
     due_date DATE NOT NULL,
     status TEXT NOT NULL DEFAULT 'upcoming' CHECK(
         status IN ('upcoming', 'overdue', 'completed')
     ),
+    mechanic_name TEXT,
     FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
 );
 
@@ -79,6 +92,7 @@ CREATE INDEX idx_maintenance_vehicle ON maintenance_logs(vehicle_id);
 CREATE INDEX idx_dtc_vehicle ON dtc_codes(vehicle_id);
 CREATE INDEX idx_reminders_vehicle ON inspection_reminders(vehicle_id);
 CREATE INDEX idx_reminders_due ON inspection_reminders(due_date);
+CREATE INDEX idx_parts_log ON maintenance_parts(maintenance_log_id);
 
 -- Seed a handful of common DTC codes to start (expand as needed)
 INSERT INTO dtc_reference (code, description) VALUES

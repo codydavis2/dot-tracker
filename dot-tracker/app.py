@@ -5,7 +5,7 @@ from flask import Flask, flash, redirect, render_template, request, session
 from flask_session import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from helpers import login_required, reminder_status, usd
+from helpers import generate_reminder_dates, login_required, reminder_status, usd
 
 app = Flask(__name__)
 
@@ -212,6 +212,19 @@ def vehicle_detail(vehicle_id):
         (vehicle_id,),
     ).fetchall()
 
+    parts_rows = db.execute(
+        """
+        SELECT maintenance_parts.*
+        FROM maintenance_parts
+        JOIN maintenance_logs ON maintenance_logs.id = maintenance_parts.maintenance_log_id
+        WHERE maintenance_logs.vehicle_id = ?
+        """,
+        (vehicle_id,),
+    ).fetchall()
+    parts_by_log = {}
+    for p in parts_rows:
+        parts_by_log.setdefault(p["maintenance_log_id"], []).append(p)
+
     dtc_codes = db.execute(
         "SELECT * FROM dtc_codes WHERE vehicle_id = ? ORDER BY date_logged DESC",
         (vehicle_id,),
@@ -226,12 +239,15 @@ def vehicle_detail(vehicle_id):
     reminders_with_status = [
         {**dict(r), "bucket": reminder_status(r["due_date"])} for r in reminders
     ]
+    maintenance_with_parts = [
+        {**dict(m), "parts": parts_by_log.get(m["id"], [])} for m in maintenance
+    ]
 
     return render_template(
         "vehicle_detail.html",
         vehicle=vehicle,
         dot_details=dot_details,
-        maintenance=maintenance,
+        maintenance=maintenance_with_parts,
         dtc_codes=dtc_codes,
         reminders=reminders_with_status,
     )
@@ -257,14 +273,37 @@ def add_maintenance(vehicle_id):
     mileage = request.form.get("mileage_at_service") or None
     cost = request.form.get("cost") or None
     notes = request.form.get("notes") or None
+    mechanic_name = request.form.get("mechanic_name") or None
 
-    db.execute(
+    cursor = db.execute(
         """
-        INSERT INTO maintenance_logs (vehicle_id, log_date, service_type, mileage_at_service, cost, notes)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO maintenance_logs
+            (vehicle_id, log_date, service_type, mileage_at_service, cost, notes, mechanic_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (vehicle_id, log_date, service_type, mileage, cost, notes),
+        (vehicle_id, log_date, service_type, mileage, cost, notes, mechanic_name),
     )
+    log_id = cursor.lastrowid
+
+    part_names = request.form.getlist("part_name[]")
+    part_quantities = request.form.getlist("part_quantity[]")
+    parts = []
+    for name, qty_str in zip(part_names, part_quantities):
+        name = name.strip()
+        if not name:
+            continue
+        try:
+            qty = int(qty_str)
+        except ValueError:
+            qty = 1
+        parts.append((log_id, name, max(qty, 1)))
+
+    if parts:
+        db.executemany(
+            "INSERT INTO maintenance_parts (maintenance_log_id, part_name, quantity) VALUES (?, ?, ?)",
+            parts,
+        )
+
     db.commit()
     db.close()
     return redirect(f"/vehicles/{vehicle_id}")
@@ -321,14 +360,40 @@ def add_reminder(vehicle_id):
         return redirect("/vehicles")
 
     reminder_type = request.form.get("reminder_type")
-    due_date = request.form.get("due_date")
+    due_date_str = request.form.get("due_date")
+    interval = request.form.get("interval", "none")
+    mechanic_name = request.form.get("mechanic_name") or None
 
-    db.execute(
+    if not due_date_str:
+        db.close()
+        flash("Due date is required.")
+        return redirect(f"/vehicles/{vehicle_id}")
+
+    due_date = date.fromisoformat(due_date_str)
+
+    if interval == "none":
+        due_dates = [due_date]
+    else:
+        custom_value = None
+        custom_unit = None
+        if interval == "custom":
+            try:
+                custom_value = int(request.form.get("custom_value", ""))
+            except ValueError:
+                custom_value = 0
+            custom_unit = request.form.get("custom_unit")
+            if custom_value < 1 or custom_unit not in ("days", "weeks", "months"):
+                db.close()
+                flash("Enter a valid custom interval.")
+                return redirect(f"/vehicles/{vehicle_id}")
+        due_dates = generate_reminder_dates(due_date, interval, custom_value, custom_unit)
+
+    db.executemany(
         """
-        INSERT INTO inspection_reminders (vehicle_id, reminder_type, due_date, status)
-        VALUES (?, ?, ?, 'upcoming')
+        INSERT INTO inspection_reminders (vehicle_id, reminder_type, due_date, status, mechanic_name)
+        VALUES (?, ?, ?, 'upcoming', ?)
         """,
-        (vehicle_id, reminder_type, due_date),
+        [(vehicle_id, reminder_type, d.isoformat(), mechanic_name) for d in due_dates],
     )
     db.commit()
     db.close()

@@ -6,11 +6,12 @@
 
 <table class="table">
     <thead>
-        <tr><th>Year</th><th>Make</th><th>Model</th><th>Mileage</th><th>DOT?</th><th></th></tr>
+        <tr><th>Unit #</th><th>Year</th><th>Make</th><th>Model</th><th>Mileage</th><th>DOT?</th><th></th></tr>
     </thead>
     <tbody>
         {% for v in vehicles %}
         <tr>
+            <td>{{ v.unit_number or "—" }}</td>
             <td>{{ v.year }}</td>
             <td>{{ v.make }}</td>
             <td>{{ v.model }}</td>
@@ -24,6 +25,9 @@
 
 <h4>Add a Vehicle</h4>
 <form action="/vehicles" method="post" class="col-md-6">
+    <div class="mb-2">
+        <input class="form-control" name="unit_number" placeholder="Unit number (e.g. Unit 42)">
+    </div>
     <div class="row mb-2">
         <div class="col"><input class="form-control" name="make" placeholder="Make" required></div>
         <div class="col"><input class="form-control" name="model" placeholder="Model" required></div>

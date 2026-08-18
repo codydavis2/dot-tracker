@@ -6,7 +6,8 @@
     {% for w in dot_warnings %}
     <div class="alert alert-danger">
         <strong>DOT COMPLIANCE WARNING:</strong>
-        {{ w.year }} {{ w.make }} {{ w.model }} is overdue for its DOT annual inspection
+        {% if w.unit_number %}Unit {{ w.unit_number }} ({{ w.year }} {{ w.make }} {{ w.model }}){% else %}{{ w.year }} {{ w.make }} {{ w.model }}{% endif %}
+        is overdue for its DOT annual inspection
         (due {{ w.due_date }}). This vehicle may be at risk of a red tag or fine if operated.
     </div>
     {% endfor %}
@@ -14,48 +15,98 @@
 
 <h2>Dashboard</h2>
 
-<div class="row">
-    <div class="col-md-6">
+<div class="row mb-4">
+    <div class="col-md-4">
         <h4>Your Vehicles</h4>
         {% if vehicles %}
         <ul class="list-group">
             {% for v in vehicles %}
             <li class="list-group-item d-flex justify-content-between align-items-center">
-                <a href="/vehicles/{{ v.id }}">{{ v.year }} {{ v.make }} {{ v.model }}</a>
+                <a href="/vehicles/{{ v.id }}">{% if v.unit_number %}Unit {{ v.unit_number }} — {% endif %}{{ v.year }} {{ v.make }} {{ v.model }}</a>
                 {% if v.is_dot_regulated %}
                 <span class="badge bg-primary">DOT</span>
                 {% endif %}
             </li>
             {% endfor %}
         </ul>
+        {% if more_vehicles %}
+        <div class="mt-2">
+            <a href="/vehicles">View more vehicles</a>
+        </div>
+        {% endif %}
         {% else %}
         <p>No vehicles yet. <a href="/vehicles">Add one</a>.</p>
         {% endif %}
     </div>
 
-    <div class="col-md-6">
-        <h4>Upcoming Reminders</h4>
-        {% if reminders %}
+    <div class="col-md-8">
+        <h4>Open Work Orders</h4>
+        {% if open_work_orders %}
         <ul class="list-group">
-            {% for r in reminders %}
-            <li class="list-group-item d-flex justify-content-between align-items-center
-                {% if r.bucket == 'overdue' %}list-group-item-danger
-                {% elif r.bucket == 'due_soon' %}list-group-item-warning
-                {% endif %}">
-                <span>
-                    {{ r.year }} {{ r.make }} {{ r.model }} —
-                    {{ r.reminder_type.replace('_', ' ')|title }} due {{ r.due_date }}
-                </span>
-                <form action="/reminders/{{ r.id }}/complete" method="post" class="m-0">
-                    <button class="btn btn-sm btn-outline-success" type="submit">Mark Done</button>
-                </form>
+            {% for w in open_work_orders %}
+            <li class="list-group-item {% if w.overdue %}list-group-item-danger{% endif %}">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <strong>W/O: {{ w.id }}</strong> —
+                        {% if w.unit_number %}Unit {{ w.unit_number }}{% else %}(no unit #){% endif %} — {{ w.year }} {{ w.make }} {{ w.model }}
+                        {% if w.overdue %}<span class="badge bg-danger ms-1">Overdue</span>{% endif %}
+                        {% if w.description %}<div class="small">{{ w.description }}</div>{% endif %}
+                        <div class="small text-muted">
+                            {% if w.scheduled_completion_date %}Scheduled completion: {{ w.scheduled_completion_date }}{% else %}No scheduled completion date{% endif %}
+                            {% if w.assigned_to %} | Assigned to: {{ w.assigned_to }}{% endif %}
+                        </div>
+                    </div>
+                    <a class="btn btn-sm btn-outline-secondary flex-shrink-0 ms-3" href="/vehicles/{{ w.vehicle_id }}">View</a>
+                </div>
             </li>
             {% endfor %}
         </ul>
+        {% if more_open_work_orders %}
+        <div class="mt-2">
+            <a href="/work-orders">View more work orders</a>
+        </div>
+        {% endif %}
         {% else %}
-        <p>No reminders set.</p>
+        <p>No open work orders.</p>
         {% endif %}
     </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <a class="btn btn-outline-secondary btn-sm" href="/?year={{ prev_year }}&month={{ prev_month }}">&laquo; Prev</a>
+    <h4 class="mb-0">{{ month_label }}</h4>
+    <a class="btn btn-outline-secondary btn-sm" href="/?year={{ next_year }}&month={{ next_month }}">Next &raquo;</a>
+</div>
+{% if year != today.year or month != today.month %}
+<div class="text-center mb-2">
+    <a class="btn btn-link btn-sm" href="/">Back to today</a>
+</div>
+{% endif %}
+
+<div class="table-responsive">
+    <table class="table table-bordered calendar-table">
+        <thead>
+            <tr class="text-center">
+                <th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for week in month_days %}
+            <tr>
+                {% for day in week %}
+                <td class="calendar-day {% if day != 0 and day == today.day and year == today.year and month == today.month %}calendar-today{% endif %}">
+                    {% if day != 0 %}
+                    <div class="calendar-day-number">{{ day }}</div>
+                    {% for ev in events_by_day.get(day, []) %}
+                    <a href="{{ ev.url }}" class="badge {{ ev.css_class }} calendar-event" title="{{ ev.label }}">{{ ev.label }}</a>
+                    {% endfor %}
+                    {% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 
 {% endblock %}

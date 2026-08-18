@@ -1,9 +1,9 @@
 {% extends "layout.html" %}
-{% block title %}{{ vehicle.year }} {{ vehicle.make }} {{ vehicle.model }}{% endblock %}
+{% block title %}{% if vehicle.unit_number %}Unit {{ vehicle.unit_number }}{% else %}{{ vehicle.year }} {{ vehicle.make }} {{ vehicle.model }}{% endif %}{% endblock %}
 {% block main %}
 
 <h2>
-    {{ vehicle.year }} {{ vehicle.make }} {{ vehicle.model }}
+    {% if vehicle.unit_number %}Unit {{ vehicle.unit_number }} — {% endif %}{{ vehicle.year }} {{ vehicle.make }} {{ vehicle.model }}
     {% if vehicle.is_dot_regulated %}<span class="badge bg-primary">DOT Regulated</span>{% endif %}
 </h2>
 <p class="text-muted">VIN: {{ vehicle.vin or "—" }} | Mileage: {{ vehicle.mileage }} | GVWR: {{ vehicle.gvwr or "—" }}</p>
@@ -24,8 +24,8 @@
 {% endif %}
 
 <div class="row">
-    <div class="col-md-4">
-        <h4>Inspection Reminders</h4>
+    <div class="col-md-6">
+        <h4>Inspections</h4>
         <ul class="list-group mb-3">
             {% for r in reminders %}
             <li class="list-group-item
@@ -106,85 +106,31 @@
         </script>
     </div>
 
-    <div class="col-md-4">
-        <h4>Maintenance Log</h4>
+    <div class="col-md-6">
+        <h4>Work Orders</h4>
         <ul class="list-group mb-3">
-            {% for m in maintenance %}
+            {% for w in work_orders %}
             <li class="list-group-item">
-                {{ m.log_date }} — {{ m.service_type }}
-                {% if m.cost %}({{ m.cost|usd }}){% endif %}
-                {% if m.mechanic_name %}<br><small class="text-muted">Mechanic: {{ m.mechanic_name }}</small>{% endif %}
-                {% if m.parts %}
-                <br><small class="text-muted">Parts: {% for p in m.parts %}{{ p.part_name }}{% if p.quantity > 1 %} (x{{ p.quantity }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</small>
-                {% endif %}
+                <a href="/work-orders/{{ w.id }}" class="d-flex justify-content-between align-items-center text-decoration-none text-reset">
+                    <span>
+                        <strong>W/O: {{ w.id }}</strong>
+                        {% if w.description %}<div class="small text-muted mt-1">{{ w.description[:120] }}{% if w.description|length > 120 %}&hellip;{% endif %}</div>{% endif %}
+                    </span>
+                    <span class="text-end flex-shrink-0 ms-3">
+                        {% if w.status == 'open' %}
+                        <span class="badge bg-warning text-dark">Open</span>
+                        {% else %}
+                        <span class="badge bg-secondary">Closed</span>
+                        {% endif %}
+                        {% if w.scheduled_completion_date %}<div class="text-muted small mt-1">Due {{ w.scheduled_completion_date }}</div>{% endif %}
+                    </span>
+                </a>
             </li>
+            {% else %}
+            <li class="list-group-item text-muted">No work orders yet.</li>
             {% endfor %}
         </ul>
-        <form action="/vehicles/{{ vehicle.id }}/maintenance" method="post" id="maintenance-form">
-            <input class="form-control mb-2" name="service_type" placeholder="Service type" required>
-            <input class="form-control mb-2" type="date" name="log_date">
-            <input class="form-control mb-2" name="mileage_at_service" type="number" placeholder="Mileage">
-            <input class="form-control mb-2" name="cost" type="number" step="0.01" placeholder="Cost">
-            <input class="form-control mb-2" name="mechanic_name" placeholder="Assigned mechanic (optional)">
-            <textarea class="form-control mb-2" name="notes" placeholder="Notes"></textarea>
-
-            <label class="form-label mb-1">Parts Used</label>
-            <div id="parts-list">
-                <div class="input-group mb-2 part-row">
-                    <input class="form-control" name="part_name[]" placeholder="Part name">
-                    <input class="form-control" name="part_quantity[]" type="number" min="1" value="1" style="max-width: 5rem;">
-                    <button class="btn btn-outline-danger remove-part-btn" type="button">&times;</button>
-                </div>
-            </div>
-            <button class="btn btn-sm btn-secondary mb-2" type="button" id="add-part-btn">+ Add Part</button>
-            <br>
-            <button class="btn btn-sm btn-primary" type="submit">Log Service</button>
-        </form>
-        <script>
-            (function () {
-                var partsList = document.getElementById("parts-list");
-                var addBtn = document.getElementById("add-part-btn");
-
-                function wireRemove(row) {
-                    row.querySelector(".remove-part-btn").addEventListener("click", function () {
-                        if (partsList.querySelectorAll(".part-row").length > 1) {
-                            row.remove();
-                        } else {
-                            row.querySelectorAll("input").forEach(function (input) {
-                                input.value = input.type === "number" ? 1 : "";
-                            });
-                        }
-                    });
-                }
-
-                addBtn.addEventListener("click", function () {
-                    var row = partsList.querySelector(".part-row").cloneNode(true);
-                    row.querySelectorAll("input").forEach(function (input) {
-                        input.value = input.type === "number" ? 1 : "";
-                    });
-                    partsList.appendChild(row);
-                    wireRemove(row);
-                });
-
-                partsList.querySelectorAll(".part-row").forEach(wireRemove);
-            })();
-        </script>
-    </div>
-
-    <div class="col-md-4">
-        <h4>DTC Codes</h4>
-        <ul class="list-group mb-3">
-            {% for d in dtc_codes %}
-            <li class="list-group-item {% if not d.resolved %}list-group-item-warning{% endif %}">
-                {{ d.code }} — {{ d.description }} ({{ d.date_logged }})
-            </li>
-            {% endfor %}
-        </ul>
-        <form action="/vehicles/{{ vehicle.id }}/dtc" method="post">
-            <input class="form-control mb-2" name="code" placeholder="e.g. P0420" required>
-            <input class="form-control mb-2" name="description" placeholder="Description (if code not in reference table)">
-            <button class="btn btn-sm btn-primary" type="submit">Log Code</button>
-        </form>
+        <a class="btn btn-sm btn-outline-primary" href="/work-orders">Manage Work Orders</a>
     </div>
 </div>
 

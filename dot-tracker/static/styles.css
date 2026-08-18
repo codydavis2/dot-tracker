@@ -5,3 +5,35 @@ body {
 .navbar-brand {
     font-weight: 600;
 }
+
+.calendar-table {
+    table-layout: fixed;
+}
+
+.calendar-day {
+    width: 14.28%;
+    height: 110px;
+    vertical-align: top;
+    overflow-y: auto;
+}
+
+.calendar-today {
+    background-color: #e7f1ff;
+}
+
+.calendar-day-number {
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 2px;
+}
+
+.calendar-event {
+    display: block;
+    width: 100%;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 2px;
+    font-weight: 400;
+}

@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+{% block title %}Inspections{% endblock %}
+{% block main %}
+
+<h2>Inspections</h2>
+
+<h4>Upcoming Inspections</h4>
+<ul class="list-group mb-4">
+    {% for r in upcoming %}
+    <li class="list-group-item d-flex justify-content-between align-items-center
+        {% if r.bucket == 'overdue' %}list-group-item-danger
+        {% elif r.bucket == 'due_soon' %}list-group-item-warning{% endif %}">
+        <span>
+            <a href="/vehicles/{{ r.vehicle_id }}">{% if r.unit_number %}Unit {{ r.unit_number }}{% else %}{{ r.year }} {{ r.make }} {{ r.model }}{% endif %}</a>
+            — {{ r.reminder_type.replace('_', ' ')|title }} due {{ r.due_date }}
+            {% if r.mechanic_name %}<span class="text-muted small"> — Mechanic: {{ r.mechanic_name }}</span>{% endif %}
+        </span>
+        <form action="/reminders/{{ r.id }}/complete" method="post" class="m-0">
+            <button class="btn btn-sm btn-outline-success" type="submit">Mark Done</button>
+        </form>
+    </li>
+    {% else %}
+    <li class="list-group-item text-muted">No upcoming inspections.</li>
+    {% endfor %}
+</ul>
+
+<h4>Completed Inspections</h4>
+<ul class="list-group mb-4">
+    {% for r in completed %}
+    <li class="list-group-item">
+        <a href="/vehicles/{{ r.vehicle_id }}">{% if r.unit_number %}Unit {{ r.unit_number }}{% else %}{{ r.year }} {{ r.make }} {{ r.model }}{% endif %}</a>
+        — {{ r.reminder_type.replace('_', ' ')|title }} (was due {{ r.due_date }})
+        {% if r.mechanic_name %}<span class="text-muted small"> — Mechanic: {{ r.mechanic_name }}</span>{% endif %}
+    </li>
+    {% else %}
+    <li class="list-group-item text-muted">No completed inspections yet.</li>
+    {% endfor %}
+</ul>
+
+{% endblock %}

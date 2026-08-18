@@ -11,6 +11,7 @@ CREATE TABLE users (
 CREATE TABLE vehicles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
+    unit_number TEXT,                  -- fleet-assigned identifier, e.g. "Unit 42"
     make TEXT NOT NULL,
     model TEXT NOT NULL,
     year INTEGER NOT NULL,
@@ -70,6 +71,52 @@ CREATE TABLE dtc_reference (
     description TEXT NOT NULL
 );
 
+CREATE TABLE work_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vehicle_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'closed')),
+    created_by TEXT,
+    assigned_to TEXT,                  -- mechanic
+    description TEXT,
+    notes TEXT,
+    hours NUMERIC,                     -- labor hours
+    scheduled_completion_date DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    closed_at TIMESTAMP,
+    FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+);
+
+CREATE TABLE work_order_parts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_order_id INTEGER NOT NULL,
+    part_name TEXT NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (work_order_id) REFERENCES work_orders(id)
+);
+
+CREATE TABLE work_order_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_order_id INTEGER NOT NULL,
+    original_filename TEXT NOT NULL,
+    stored_filename TEXT NOT NULL,     -- randomized name on disk; avoids collisions/traversal
+    content_type TEXT,
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (work_order_id) REFERENCES work_orders(id)
+);
+
+CREATE TABLE inventory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    part_number TEXT,
+    name TEXT NOT NULL,
+    cost NUMERIC,
+    vendor TEXT,
+    location TEXT,
+    quantity INTEGER NOT NULL DEFAULT 0,
+    low_stock_threshold INTEGER,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
 CREATE TABLE inspection_reminders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     vehicle_id INTEGER NOT NULL,
@@ -88,11 +135,17 @@ CREATE TABLE inspection_reminders (
 );
 
 CREATE INDEX idx_vehicles_user ON vehicles(user_id);
+CREATE UNIQUE INDEX idx_vehicles_unit_number ON vehicles(user_id, unit_number);
 CREATE INDEX idx_maintenance_vehicle ON maintenance_logs(vehicle_id);
 CREATE INDEX idx_dtc_vehicle ON dtc_codes(vehicle_id);
 CREATE INDEX idx_reminders_vehicle ON inspection_reminders(vehicle_id);
 CREATE INDEX idx_reminders_due ON inspection_reminders(due_date);
 CREATE INDEX idx_parts_log ON maintenance_parts(maintenance_log_id);
+CREATE INDEX idx_work_orders_vehicle ON work_orders(vehicle_id);
+CREATE INDEX idx_work_orders_status ON work_orders(status);
+CREATE INDEX idx_work_order_parts_wo ON work_order_parts(work_order_id);
+CREATE INDEX idx_work_order_attachments_wo ON work_order_attachments(work_order_id);
+CREATE INDEX idx_inventory_user ON inventory(user_id);
 
 -- Seed a handful of common DTC codes to start (expand as needed)
 INSERT INTO dtc_reference (code, description) VALUES

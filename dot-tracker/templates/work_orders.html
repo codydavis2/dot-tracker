@@ -1,0 +1,202 @@
+{% extends "layout.html" %}
+{% block title %}Work Orders{% endblock %}
+{% block main %}
+
+{% macro work_order_row(w) %}
+<li class="list-group-item">
+    <a href="/work-orders/{{ w.id }}" class="d-flex justify-content-between align-items-center text-decoration-none text-reset">
+        <span>
+            <strong>W/O: {{ w.id }}</strong> —
+            {% if w.unit_number %}Unit {{ w.unit_number }}{% else %}(no unit #){% endif %} — {{ w.year }} {{ w.make }} {{ w.model }}
+            {% if w.description %}<div class="small text-muted mt-1">{{ w.description[:120] }}{% if w.description|length > 120 %}&hellip;{% endif %}</div>{% endif %}
+        </span>
+        <span class="text-end flex-shrink-0 ms-3">
+            {% if w.status == 'open' %}
+            <span class="badge bg-warning text-dark">Open</span>
+            {% else %}
+            <span class="badge bg-secondary">Closed</span>
+            {% endif %}
+            {% if w.scheduled_completion_date %}<div class="text-muted small mt-1">Due {{ w.scheduled_completion_date }}</div>{% endif %}
+        </span>
+    </a>
+</li>
+{% endmacro %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Work Orders</h2>
+    <button class="btn btn-primary" type="button" id="new-work-order-btn">+ New Work Order</button>
+</div>
+
+<div class="card mb-4 d-none" id="new-work-order-card">
+    <div class="card-header">New Work Order</div>
+    <div class="card-body">
+        <form action="/work-orders" method="post" id="work-order-form" enctype="multipart/form-data">
+            <div class="row mb-2">
+                <div class="col-md-3">
+                    <label class="form-label">Status</label>
+                    <select class="form-select" name="status">
+                        <option value="open" selected>Open</option>
+                        <option value="closed">Closed</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Created By</label>
+                    <input class="form-control" name="created_by" placeholder="Your name">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Unit Number</label>
+                    <select class="form-select" name="vehicle_id" id="wo-vehicle-select" required>
+                        <option value="" disabled selected>Select a unit&hellip;</option>
+                        {% for v in vehicles %}
+                        <option value="{{ v.id }}">{% if v.unit_number %}Unit {{ v.unit_number }}{% else %}(no unit #){% endif %} — {{ v.year }} {{ v.make }} {{ v.model }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Assigned To</label>
+                    <input class="form-control" name="assigned_to" placeholder="Mechanic">
+                </div>
+            </div>
+
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <label class="form-label">Scheduled Completion Date</label>
+                    <input class="form-control" name="scheduled_completion_date" type="date">
+                </div>
+            </div>
+
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <label class="form-label">Year</label>
+                    <input class="form-control" id="wo-year" disabled>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Make</label>
+                    <input class="form-control" id="wo-make" disabled>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Model</label>
+                    <input class="form-control" id="wo-model" disabled>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">VIN</label>
+                    <input class="form-control" id="wo-vin" disabled>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Description</label>
+                <textarea class="form-control" name="description" rows="6" maxlength="10000" placeholder="What needs to be done..."></textarea>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Notes</label>
+                <textarea class="form-control" name="notes" rows="4" maxlength="10000" placeholder="Additional notes..."></textarea>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label mb-1">Parts</label>
+                <div class="wo-parts-list" id="wo-parts-list">
+                    <div class="input-group mb-2 part-row">
+                        <input class="form-control" name="part_name[]" placeholder="Part name">
+                        <input class="form-control" name="part_quantity[]" type="number" min="1" value="1" style="max-width: 5rem;">
+                        <button class="btn btn-outline-danger remove-part-btn" type="button">&times;</button>
+                    </div>
+                </div>
+                <button class="btn btn-sm btn-secondary" type="button" id="add-part-btn">+ Add Part</button>
+            </div>
+
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <label class="form-label">Labor Hours</label>
+                    <input class="form-control" name="hours" type="number" step="0.25" min="0" placeholder="0.0">
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Attachments (photos, invoices, quotes, etc.)</label>
+                <input class="form-control" type="file" name="attachments" multiple
+                       accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv">
+            </div>
+
+            <button class="btn btn-primary" type="submit">Create Work Order</button>
+            <button class="btn btn-outline-secondary" type="button" id="cancel-work-order-btn">Cancel</button>
+        </form>
+    </div>
+</div>
+
+<h4>Open Work Orders</h4>
+<ul class="list-group mb-4">
+    {% for w in open_work_orders %}
+        {{ work_order_row(w) }}
+    {% else %}
+    <li class="list-group-item text-muted">No open work orders.</li>
+    {% endfor %}
+</ul>
+
+<h4>Closed Work Orders</h4>
+<ul class="list-group mb-4">
+    {% for w in closed_work_orders %}
+        {{ work_order_row(w) }}
+    {% else %}
+    <li class="list-group-item text-muted">No closed work orders.</li>
+    {% endfor %}
+</ul>
+
+<script>
+    (function () {
+        var vehicles = {{ vehicles_json|safe }};
+
+        var newBtn = document.getElementById("new-work-order-btn");
+        var cancelBtn = document.getElementById("cancel-work-order-btn");
+        var card = document.getElementById("new-work-order-card");
+        newBtn.addEventListener("click", function () {
+            card.classList.toggle("d-none");
+        });
+        cancelBtn.addEventListener("click", function () {
+            card.classList.add("d-none");
+        });
+
+        var vehicleSelect = document.getElementById("wo-vehicle-select");
+        var yearField = document.getElementById("wo-year");
+        var makeField = document.getElementById("wo-make");
+        var modelField = document.getElementById("wo-model");
+        var vinField = document.getElementById("wo-vin");
+        vehicleSelect.addEventListener("change", function () {
+            var vehicle = vehicles[vehicleSelect.value];
+            if (!vehicle) return;
+            yearField.value = vehicle.year || "";
+            makeField.value = vehicle.make || "";
+            modelField.value = vehicle.model || "";
+            vinField.value = vehicle.vin || "";
+        });
+
+        var partsList = document.getElementById("wo-parts-list");
+        var addPartBtn = document.getElementById("add-part-btn");
+
+        function wireRemove(row) {
+            row.querySelector(".remove-part-btn").addEventListener("click", function () {
+                if (partsList.querySelectorAll(".part-row").length > 1) {
+                    row.remove();
+                } else {
+                    row.querySelectorAll("input").forEach(function (input) {
+                        input.value = input.type === "number" ? 1 : "";
+                    });
+                }
+            });
+        }
+
+        addPartBtn.addEventListener("click", function () {
+            var row = partsList.querySelector(".part-row").cloneNode(true);
+            row.querySelectorAll("input").forEach(function (input) {
+                input.value = input.type === "number" ? 1 : "";
+            });
+            partsList.appendChild(row);
+            wireRemove(row);
+        });
+
+        partsList.querySelectorAll(".part-row").forEach(wireRemove);
+    })();
+</script>
+
+{% endblock %}

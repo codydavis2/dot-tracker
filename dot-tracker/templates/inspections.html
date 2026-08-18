@@ -2,7 +2,68 @@
 {% block title %}Inspections{% endblock %}
 {% block main %}
 
-<h2>Inspections</h2>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Inspections</h2>
+    <button class="btn btn-primary" type="button" id="new-report-btn">+ New Inspection Report</button>
+</div>
+
+<div class="card mb-4 d-none" id="new-report-card">
+    <div class="card-header">New Inspection Report</div>
+    <div class="card-body">
+        <form action="/inspections/reports" method="post">
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <label class="form-label">Unit Number</label>
+                    <select class="form-select" name="vehicle_id" required>
+                        <option value="" disabled selected>Select a unit&hellip;</option>
+                        {% for v in vehicles %}
+                        <option value="{{ v.id }}">{% if v.unit_number %}Unit {{ v.unit_number }}{% else %}(no unit #){% endif %} — {{ v.year }} {{ v.make }} {{ v.model }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Inspector Name</label>
+                    <input class="form-control" name="inspector_name" placeholder="Your name">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Inspection Date</label>
+                    <input class="form-control" name="inspection_date" type="date">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Mileage</label>
+                    <input class="form-control" name="mileage" type="number" min="0" placeholder="Current mileage">
+                </div>
+            </div>
+
+            <div class="mb-3">
+                {% for item in checklist %}
+                <div class="border rounded p-3 mb-2">
+                    <div class="fw-bold mb-2">{{ item }}</div>
+                    <div class="btn-group mb-2" role="group" aria-label="{{ item }} status">
+                        <input type="radio" class="btn-check" name="status_{{ loop.index0 }}" id="status_{{ loop.index0 }}_good" value="good" autocomplete="off" checked>
+                        <label class="btn btn-outline-success" for="status_{{ loop.index0 }}_good">Good</label>
+
+                        <input type="radio" class="btn-check" name="status_{{ loop.index0 }}" id="status_{{ loop.index0 }}_attn" value="needs_attention" autocomplete="off">
+                        <label class="btn btn-outline-warning" for="status_{{ loop.index0 }}_attn">Needs Attention</label>
+
+                        <input type="radio" class="btn-check" name="status_{{ loop.index0 }}" id="status_{{ loop.index0 }}_oos" value="out_of_spec" autocomplete="off">
+                        <label class="btn btn-outline-danger" for="status_{{ loop.index0 }}_oos">Out of Spec</label>
+                    </div>
+                    <input class="form-control form-control-sm" name="comments_{{ loop.index0 }}" placeholder="Comments (optional)">
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Notes</label>
+                <textarea class="form-control" name="notes" rows="3" maxlength="10000" placeholder="Anything flagged or worth noting..."></textarea>
+            </div>
+
+            <button class="btn btn-primary" type="submit">Save Inspection Report</button>
+            <button class="btn btn-outline-secondary" type="button" id="cancel-report-btn">Cancel</button>
+        </form>
+    </div>
+</div>
 
 <h4>Upcoming Inspections</h4>
 <ul class="list-group mb-4">
@@ -24,17 +85,35 @@
     {% endfor %}
 </ul>
 
-<h4>Completed Inspections</h4>
+<h4>Inspection Reports</h4>
 <ul class="list-group mb-4">
-    {% for r in completed %}
+    {% for r in reports %}
     <li class="list-group-item">
-        <a href="/vehicles/{{ r.vehicle_id }}">{% if r.unit_number %}Unit {{ r.unit_number }}{% else %}{{ r.year }} {{ r.make }} {{ r.model }}{% endif %}</a>
-        — {{ r.reminder_type.replace('_', ' ')|title }} (was due {{ r.due_date }})
-        {% if r.mechanic_name %}<span class="text-muted small"> — Mechanic: {{ r.mechanic_name }}</span>{% endif %}
+        <a href="/inspections/reports/{{ r.id }}" class="d-flex justify-content-between align-items-center text-decoration-none text-reset">
+            <span>
+                {% if r.unit_number %}Unit {{ r.unit_number }}{% else %}(no unit #){% endif %} — {{ r.year }} {{ r.make }} {{ r.model }}
+                <div class="small text-muted mt-1">{{ r.inspection_date }}{% if r.inspector_name %} — Inspector: {{ r.inspector_name }}{% endif %}</div>
+            </span>
+            {% if r.flagged_count %}<span class="badge bg-danger">{{ r.flagged_count }} flagged</span>{% endif %}
+        </a>
     </li>
     {% else %}
-    <li class="list-group-item text-muted">No completed inspections yet.</li>
+    <li class="list-group-item text-muted">No inspection reports yet.</li>
     {% endfor %}
 </ul>
+
+<script>
+    (function () {
+        var newBtn = document.getElementById("new-report-btn");
+        var cancelBtn = document.getElementById("cancel-report-btn");
+        var card = document.getElementById("new-report-card");
+        newBtn.addEventListener("click", function () {
+            card.classList.toggle("d-none");
+        });
+        cancelBtn.addEventListener("click", function () {
+            card.classList.add("d-none");
+        });
+    })();
+</script>
 
 {% endblock %}

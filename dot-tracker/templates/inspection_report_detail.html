@@ -1,0 +1,61 @@
+{% extends "layout.html" %}
+{% block title %}Inspection Report{% endblock %}
+{% block main %}
+
+<a href="/inspections" class="btn btn-sm btn-outline-secondary mb-3">&larr; Back to Inspections</a>
+
+<h2>
+    {% if report.unit_number %}Unit {{ report.unit_number }}{% else %}(no unit #){% endif %} — {{ report.year }} {{ report.make }} {{ report.model }}
+</h2>
+<p class="text-muted">
+    Inspected {{ report.inspection_date }}
+    {% if report.inspector_name %} by {{ report.inspector_name }}{% endif %}
+    {% if report.mileage %} — Mileage: {{ report.mileage }}{% endif %}
+</p>
+
+<div class="card mb-3">
+    <ul class="list-group list-group-flush">
+        {% for i in items %}
+        <li class="list-group-item
+            {% if i.status == 'needs_attention' %}list-group-item-warning
+            {% elif i.status == 'out_of_spec' %}list-group-item-danger{% endif %}">
+            <div class="d-flex justify-content-between align-items-center">
+                {{ i.item }}
+                {% if i.status == 'good' %}
+                <span class="badge bg-success">{{ status_labels[i.status] }}</span>
+                {% elif i.status == 'needs_attention' %}
+                <span class="badge bg-warning text-dark">{{ status_labels[i.status] }}</span>
+                {% else %}
+                <span class="badge bg-danger">{{ status_labels[i.status] }}</span>
+                {% endif %}
+            </div>
+            {% if i.comments %}<div class="small text-muted mt-1">{{ i.comments }}</div>{% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+
+{% if report.notes %}
+<div class="card mb-3">
+    <div class="card-header">Notes</div>
+    <div class="card-body">
+        <p class="mb-0">{{ report.notes }}</p>
+    </div>
+</div>
+{% endif %}
+
+{% if prompt_work_order %}
+<script>
+    (function () {
+        var count = {{ out_of_spec_items|length }};
+        var message = count === 1
+            ? "1 item was marked Out of Spec on this inspection. Create a work order for it?"
+            : count + " items were marked Out of Spec on this inspection. Create a work order for them?";
+        if (confirm(message)) {
+            window.location.href = "/work-orders?vehicle_id={{ report.vehicle_id }}&description={{ work_order_prefill_description|urlencode }}";
+        }
+    })();
+</script>
+{% endif %}
+
+{% endblock %}

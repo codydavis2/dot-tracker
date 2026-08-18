@@ -2,7 +2,43 @@
 {% block title %}Vehicles{% endblock %}
 {% block main %}
 
-<h2>Vehicles</h2>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Vehicles</h2>
+    <button class="btn btn-primary" type="button" id="new-vehicle-btn">+ Add Vehicle</button>
+</div>
+
+<div class="card mb-4 d-none" id="new-vehicle-card">
+    <div class="card-header">Add a Vehicle</div>
+    <div class="card-body">
+        <form action="/vehicles" method="post">
+            <div class="mb-2">
+                <input class="form-control" name="unit_number" placeholder="Unit number (e.g. Unit 42)">
+            </div>
+            <div class="row mb-2">
+                <div class="col"><input class="form-control" name="make" placeholder="Make" required></div>
+                <div class="col"><input class="form-control" name="model" placeholder="Model" required></div>
+                <div class="col"><input class="form-control" name="year" type="number" placeholder="Year" required></div>
+            </div>
+            <div class="mb-2">
+                <input class="form-control" name="vin" placeholder="VIN (optional)">
+            </div>
+            <div class="mb-2">
+                <input class="form-control" name="mileage" type="number" placeholder="Current mileage">
+            </div>
+            <div class="mb-2">
+                <input class="form-control" name="gvwr" type="number" placeholder="GVWR (lbs) — 26,001+ typically requires DOT/CDL">
+            </div>
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" name="is_dot_regulated" id="dotCheck">
+                <label class="form-check-label" for="dotCheck">
+                    This vehicle requires a CDL and is subject to DOT regulations
+                </label>
+            </div>
+            <button class="btn btn-primary" type="submit">Add Vehicle</button>
+            <button class="btn btn-outline-secondary" type="button" id="cancel-vehicle-btn">Cancel</button>
+        </form>
+    </div>
+</div>
 
 <table class="table">
     <thead>
@@ -23,32 +59,18 @@
     </tbody>
 </table>
 
-<h4>Add a Vehicle</h4>
-<form action="/vehicles" method="post" class="col-md-6">
-    <div class="mb-2">
-        <input class="form-control" name="unit_number" placeholder="Unit number (e.g. Unit 42)">
-    </div>
-    <div class="row mb-2">
-        <div class="col"><input class="form-control" name="make" placeholder="Make" required></div>
-        <div class="col"><input class="form-control" name="model" placeholder="Model" required></div>
-        <div class="col"><input class="form-control" name="year" type="number" placeholder="Year" required></div>
-    </div>
-    <div class="mb-2">
-        <input class="form-control" name="vin" placeholder="VIN (optional)">
-    </div>
-    <div class="mb-2">
-        <input class="form-control" name="mileage" type="number" placeholder="Current mileage">
-    </div>
-    <div class="mb-2">
-        <input class="form-control" name="gvwr" type="number" placeholder="GVWR (lbs) — 26,001+ typically requires DOT/CDL">
-    </div>
-    <div class="form-check mb-3">
-        <input class="form-check-input" type="checkbox" name="is_dot_regulated" id="dotCheck">
-        <label class="form-check-label" for="dotCheck">
-            This vehicle requires a CDL and is subject to DOT regulations
-        </label>
-    </div>
-    <button class="btn btn-primary" type="submit">Add Vehicle</button>
-</form>
+<script>
+    (function () {
+        var newBtn = document.getElementById("new-vehicle-btn");
+        var cancelBtn = document.getElementById("cancel-vehicle-btn");
+        var card = document.getElementById("new-vehicle-card");
+        newBtn.addEventListener("click", function () {
+            card.classList.toggle("d-none");
+        });
+        cancelBtn.addEventListener("click", function () {
+            card.classList.add("d-none");
+        });
+    })();
+</script>
 
 {% endblock %}

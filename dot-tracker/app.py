@@ -35,6 +35,17 @@ ALLOWED_ATTACHMENT_EXTENSIONS = {
 }
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB per request
 
+# Vehicle inspection checklist. Item text is copied onto each submitted report,
+# so changing this list only affects inspections filled out afterward.
+INSPECTION_CHECKLIST = [
+    "Oil", "Coolant", "Belts", "Exhaust", "Intake", "Fuel",
+    "Springs", "Shocks",
+    "Brakes", "ABS", "Tires", "Rims", "Frame", "Lights", "Electrical",
+    "Reflectors", "Windshield", "Steering", "Battery", "Coupling Devices",
+    "Horn", "Mirrors", "Error Codes", "Misc.",
+]
+INSPECTION_STATUS_LABELS = {"good": "Good", "needs_attention": "Needs Attention", "out_of_spec": "Out of Spec"}
+
 
 def get_db():
     conn = sqlite3.connect(DATABASE)
@@ -486,26 +497,143 @@ def inspections():
         SELECT inspection_reminders.*, vehicles.unit_number, vehicles.make, vehicles.model, vehicles.year
         FROM inspection_reminders
         JOIN vehicles ON vehicles.id = inspection_reminders.vehicle_id
+        WHERE vehicles.user_id = ? AND inspection_reminders.status != 'completed'
+        """,
+        (session["user_id"],),
+    ).fetchall()
+
+    upcoming = sorted(
+        ({**dict(r), "bucket": reminder_status(r["due_date"])} for r in rows),
+        key=lambda r: r["due_date"],
+    )
+
+    vehicles = db.execute(
+        "SELECT id, unit_number, year, make, model FROM vehicles WHERE user_id = ? ORDER BY unit_number",
+        (session["user_id"],),
+    ).fetchall()
+    report_rows = db.execute(
+        """
+        SELECT inspection_reports.*, vehicles.unit_number, vehicles.year, vehicles.make, vehicles.model
+        FROM inspection_reports
+        JOIN vehicles ON vehicles.id = inspection_reports.vehicle_id
         WHERE vehicles.user_id = ?
+        ORDER BY inspection_reports.inspection_date DESC, inspection_reports.id DESC
+        """,
+        (session["user_id"],),
+    ).fetchall()
+    flagged_rows = db.execute(
+        """
+        SELECT inspection_report_items.inspection_report_id, COUNT(*) AS flagged_count
+        FROM inspection_report_items
+        JOIN inspection_reports ON inspection_reports.id = inspection_report_items.inspection_report_id
+        JOIN vehicles ON vehicles.id = inspection_reports.vehicle_id
+        WHERE vehicles.user_id = ? AND inspection_report_items.status IN ('needs_attention', 'out_of_spec')
+        GROUP BY inspection_report_items.inspection_report_id
         """,
         (session["user_id"],),
     ).fetchall()
     db.close()
 
-    upcoming = sorted(
-        (
-            {**dict(r), "bucket": reminder_status(r["due_date"])}
-            for r in rows if r["status"] != "completed"
-        ),
-        key=lambda r: r["due_date"],
-    )
-    completed = sorted(
-        (dict(r) for r in rows if r["status"] == "completed"),
-        key=lambda r: r["due_date"],
-        reverse=True,
+    flagged_by_report = {r["inspection_report_id"]: r["flagged_count"] for r in flagged_rows}
+    reports = [
+        {**dict(r), "flagged_count": flagged_by_report.get(r["id"], 0)}
+        for r in report_rows
+    ]
+
+    return render_template(
+        "inspections.html",
+        upcoming=upcoming,
+        vehicles=vehicles,
+        reports=reports,
+        checklist=INSPECTION_CHECKLIST,
     )
 
-    return render_template("inspections.html", upcoming=upcoming, completed=completed)
+
+@app.route("/inspections/reports", methods=["POST"])
+@login_required
+def add_inspection_report():
+    db = get_db()
+    vehicle_id = request.form.get("vehicle_id")
+    owned = db.execute(
+        "SELECT id FROM vehicles WHERE id = ? AND user_id = ?",
+        (vehicle_id, session["user_id"]),
+    ).fetchone()
+    if owned is None:
+        db.close()
+        flash("Select a valid unit number.")
+        return redirect("/inspections")
+
+    inspector_name = request.form.get("inspector_name") or None
+    inspection_date = request.form.get("inspection_date") or date.today().isoformat()
+    mileage = request.form.get("mileage") or None
+    notes = request.form.get("notes") or None
+
+    cursor = db.execute(
+        """
+        INSERT INTO inspection_reports (vehicle_id, inspector_name, inspection_date, mileage, notes)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (vehicle_id, inspector_name, inspection_date, mileage, notes),
+    )
+    report_id = cursor.lastrowid
+
+    items = []
+    for item_index, item in enumerate(INSPECTION_CHECKLIST):
+        status = request.form.get(f"status_{item_index}", "good")
+        if status not in ("good", "needs_attention", "out_of_spec"):
+            status = "good"
+        comments = request.form.get(f"comments_{item_index}") or None
+        items.append((report_id, item, status, comments))
+
+    db.executemany(
+        "INSERT INTO inspection_report_items (inspection_report_id, item, status, comments) VALUES (?, ?, ?, ?)",
+        items,
+    )
+    db.commit()
+    db.close()
+    return redirect(f"/inspections/reports/{report_id}?new=1")
+
+
+@app.route("/inspections/reports/<int:report_id>")
+@login_required
+def inspection_report_detail(report_id):
+    db = get_db()
+    report = db.execute(
+        """
+        SELECT inspection_reports.*, vehicles.unit_number, vehicles.year, vehicles.make, vehicles.model
+        FROM inspection_reports
+        JOIN vehicles ON vehicles.id = inspection_reports.vehicle_id
+        WHERE inspection_reports.id = ? AND vehicles.user_id = ?
+        """,
+        (report_id, session["user_id"]),
+    ).fetchone()
+
+    if report is None:
+        db.close()
+        flash("Inspection report not found.")
+        return redirect("/inspections")
+
+    items = db.execute(
+        "SELECT * FROM inspection_report_items WHERE inspection_report_id = ? ORDER BY id",
+        (report_id,),
+    ).fetchall()
+    db.close()
+
+    out_of_spec_items = [i for i in items if i["status"] == "out_of_spec"]
+    work_order_prefill_description = "\n".join(
+        f"{i['item']}: {i['comments']}" if i["comments"] else i["item"]
+        for i in out_of_spec_items
+    )
+
+    return render_template(
+        "inspection_report_detail.html",
+        report=report,
+        items=items,
+        status_labels=INSPECTION_STATUS_LABELS,
+        out_of_spec_items=out_of_spec_items,
+        work_order_prefill_description=work_order_prefill_description,
+        prompt_work_order=(request.args.get("new") == "1" and bool(out_of_spec_items)),
+    )
 
 
 # ---------- INSPECTION REMINDERS ----------
@@ -663,6 +791,8 @@ def work_orders():
         vehicles_json=vehicles_json,
         open_work_orders=open_work_orders,
         closed_work_orders=closed_work_orders,
+        prefill_vehicle_id=request.args.get("vehicle_id"),
+        prefill_description=request.args.get("description"),
     )
 
 

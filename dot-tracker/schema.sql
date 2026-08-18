@@ -134,6 +134,31 @@ CREATE TABLE inspection_reminders (
     FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
 );
 
+-- A filled-out inspection checklist for a vehicle (distinct from inspection_reminders,
+-- which just schedules when an inspection is due)
+CREATE TABLE inspection_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vehicle_id INTEGER NOT NULL,
+    inspector_name TEXT,
+    inspection_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    mileage INTEGER,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+);
+
+-- One row per checklist item on a report. Item text is stored directly
+-- (not a foreign key to a checklist definition) so past reports stay accurate
+-- even if the checklist changes later.
+CREATE TABLE inspection_report_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    inspection_report_id INTEGER NOT NULL,
+    item TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'good' CHECK(status IN ('good', 'needs_attention', 'out_of_spec')),
+    comments TEXT,
+    FOREIGN KEY (inspection_report_id) REFERENCES inspection_reports(id)
+);
+
 CREATE INDEX idx_vehicles_user ON vehicles(user_id);
 CREATE UNIQUE INDEX idx_vehicles_unit_number ON vehicles(user_id, unit_number);
 CREATE INDEX idx_maintenance_vehicle ON maintenance_logs(vehicle_id);
@@ -146,6 +171,8 @@ CREATE INDEX idx_work_orders_status ON work_orders(status);
 CREATE INDEX idx_work_order_parts_wo ON work_order_parts(work_order_id);
 CREATE INDEX idx_work_order_attachments_wo ON work_order_attachments(work_order_id);
 CREATE INDEX idx_inventory_user ON inventory(user_id);
+CREATE INDEX idx_inspection_reports_vehicle ON inspection_reports(vehicle_id);
+CREATE INDEX idx_inspection_report_items_report ON inspection_report_items(inspection_report_id);
 
 -- Seed a handful of common DTC codes to start (expand as needed)
 INSERT INTO dtc_reference (code, description) VALUES

@@ -46,9 +46,9 @@
                 <div class="col-md-3">
                     <label class="form-label">Unit Number</label>
                     <select class="form-select" name="vehicle_id" id="wo-vehicle-select" required>
-                        <option value="" disabled selected>Select a unit&hellip;</option>
+                        <option value="" disabled {% if not prefill_vehicle_id %}selected{% endif %}>Select a unit&hellip;</option>
                         {% for v in vehicles %}
-                        <option value="{{ v.id }}">{% if v.unit_number %}Unit {{ v.unit_number }}{% else %}(no unit #){% endif %} — {{ v.year }} {{ v.make }} {{ v.model }}</option>
+                        <option value="{{ v.id }}" {% if prefill_vehicle_id and prefill_vehicle_id|string == v.id|string %}selected{% endif %}>{% if v.unit_number %}Unit {{ v.unit_number }}{% else %}(no unit #){% endif %} — {{ v.year }} {{ v.make }} {{ v.model }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -86,7 +86,7 @@
 
             <div class="mb-3">
                 <label class="form-label">Description</label>
-                <textarea class="form-control" name="description" rows="6" maxlength="10000" placeholder="What needs to be done..."></textarea>
+                <textarea class="form-control" name="description" rows="6" maxlength="10000" placeholder="What needs to be done...">{{ prefill_description or '' }}</textarea>
             </div>
 
             <div class="mb-3">
@@ -162,14 +162,20 @@
         var makeField = document.getElementById("wo-make");
         var modelField = document.getElementById("wo-model");
         var vinField = document.getElementById("wo-vin");
-        vehicleSelect.addEventListener("change", function () {
+        function fillVehicleFields() {
             var vehicle = vehicles[vehicleSelect.value];
             if (!vehicle) return;
             yearField.value = vehicle.year || "";
             makeField.value = vehicle.make || "";
             modelField.value = vehicle.model || "";
             vinField.value = vehicle.vin || "";
-        });
+        }
+        vehicleSelect.addEventListener("change", fillVehicleFields);
+
+        {% if prefill_vehicle_id %}
+        card.classList.remove("d-none");
+        fillVehicleFields();
+        {% endif %}
 
         var partsList = document.getElementById("wo-parts-list");
         var addPartBtn = document.getElementById("add-part-btn");

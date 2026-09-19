@@ -1,0 +1,135 @@
+{% macro work_order_print_sheet(w) %}
+<div class="print-only print-sheet">
+    <h2>Work Order</h2>
+    <table class="table table-bordered mb-3">
+        <tbody>
+            <tr>
+                <th style="width: 20%;">W/O #</th><td style="width: 30%;">{{ w.id }}</td>
+                <th style="width: 20%;">Status</th><td>{{ w.status|capitalize }}</td>
+            </tr>
+            <tr>
+                <th>Unit</th>
+                <td>{% if w.unit_number %}Unit {{ w.unit_number }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+                <th>Vehicle</th>
+                <td>{{ w.year }} {{ w.make }} {{ w.model }}</td>
+            </tr>
+            <tr>
+                <th>VIN</th>
+                <td colspan="3">{% if w.vin %}{{ w.vin }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+            </tr>
+            <tr>
+                <th>Created By</th>
+                <td>{% if w.created_by %}{{ w.created_by }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+                <th>Assigned To</th>
+                <td>{% if w.assigned_to %}{{ w.assigned_to }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+            </tr>
+            <tr>
+                <th>Opened</th>
+                <td>{{ w.created_at[:10] if w.created_at else "" }}</td>
+                <th>Closed</th>
+                <td>{% if w.closed_at %}{{ w.closed_at[:10] }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+            </tr>
+            <tr>
+                <th>Scheduled Completion</th>
+                <td>{% if w.scheduled_completion_date %}{{ w.scheduled_completion_date }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+                <th>Labor Hours</th>
+                <td>{% if w.hours %}{{ w.hours }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="mb-3">
+        <div class="fw-bold mb-1">Description</div>
+        <div class="fill-blank-block fill-blank-block-lg">{{ w.description or "" }}</div>
+    </div>
+
+    <div class="print-page-break">
+        <div class="mb-3">
+            <div class="fw-bold mb-1">Notes</div>
+            <div class="fill-blank-block fill-blank-block-lg">{{ w.notes or "" }}</div>
+        </div>
+
+        <div class="mb-3">
+            <div class="fw-bold mb-1">Parts Used</div>
+            <div class="fill-blank-block fill-blank-block-lg">{{ w.parts_lines }}</div>
+        </div>
+
+        {% if w.attachments %}
+        <div class="mb-3">
+            <div class="fw-bold mb-1">Attachments on File</div>
+            <ul class="mb-0">
+                {% for a in w.attachments %}<li>{{ a.original_filename }}</li>{% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <div class="d-flex justify-content-between mt-4 pt-3">
+            <div>Technician Signature: <span class="fill-blank signature-line"></span></div>
+            <div>Date: <span class="fill-blank" style="min-width: 130px;"></span></div>
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+{% macro inspection_print_sheet(report, items, status_labels) %}
+<div class="print-only print-sheet">
+    <h2>Vehicle Inspection Report</h2>
+    <table class="table table-bordered mb-3">
+        <tbody>
+            <tr>
+                <th style="width: 20%;">Unit</th>
+                <td style="width: 30%;">{% if report.unit_number %}Unit {{ report.unit_number }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+                <th style="width: 20%;">Vehicle</th>
+                <td>{{ report.year }} {{ report.make }} {{ report.model }}</td>
+            </tr>
+            <tr>
+                <th>VIN</th>
+                <td colspan="3">{% if report.vin %}{{ report.vin }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+            </tr>
+            <tr>
+                <th>Inspection Date</th>
+                <td>{{ report.inspection_date }}</td>
+                <th>Mileage</th>
+                <td>{% if report.mileage %}{{ report.mileage }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+            </tr>
+            <tr>
+                <th>Inspector Name</th>
+                <td colspan="3">{% if report.inspector_name %}{{ report.inspector_name }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>Item</th>
+                <th style="width: 8%;" class="text-center">Good</th>
+                <th style="width: 10%;" class="text-center">Needs Attn.</th>
+                <th style="width: 10%;" class="text-center">Out of Spec</th>
+                <th style="width: 32%;">Comments</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for i in items %}
+            <tr>
+                <td>{{ i.item }}</td>
+                <td class="text-center">{% if i.status == 'good' %}&#10003;{% endif %}</td>
+                <td class="text-center">{% if i.status == 'needs_attention' %}&#10003;{% endif %}</td>
+                <td class="text-center">{% if i.status == 'out_of_spec' %}&#10003;{% endif %}</td>
+                <td class="fill-cell">{{ i.comments or "" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="mb-3 mt-3">
+        <div class="fw-bold mb-1">Notes</div>
+        <div class="fill-blank-block">{{ report.notes or "" }}</div>
+    </div>
+
+    <div class="d-flex justify-content-between mt-4 pt-3">
+        <div>Inspector Signature: <span class="fill-blank signature-line"></span></div>
+        <div>Date: <span class="fill-blank" style="min-width: 130px;"></span></div>
+    </div>
+</div>
+{% endmacro %}

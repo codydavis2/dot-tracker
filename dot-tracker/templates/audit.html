@@ -1,0 +1,157 @@
+{% extends "layout.html" %}
+{% import "_print_sheets.html" as sheets %}
+{% block title %}Audit{% endblock %}
+{% block main %}
+
+<div class="d-flex justify-content-between align-items-center mb-3 no-print">
+    <h2 class="mb-0">Audit Documentation</h2>
+</div>
+
+<p class="text-muted no-print" style="max-width: 62ch;">
+    Pull every work order and inspection report on file for a unit — or the whole fleet — within a date range,
+    formatted as a single document ready to hand to a DOT auditor. Use <strong>Print / Save as PDF</strong> once
+    the report is generated.
+</p>
+
+<div class="card mb-4 no-print">
+    <div class="card-header">Request Documentation</div>
+    <div class="card-body">
+        <form action="/audit" method="get">
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <label class="form-label">Asset</label>
+                    <select class="form-select" name="vehicle_id">
+                        <option value="" {% if not vehicle_id %}selected{% endif %}>All Assets (entire fleet)</option>
+                        {% for v in vehicles %}
+                        <option value="{{ v.id }}" {% if vehicle_id|string == v.id|string %}selected{% endif %}>{% if v.unit_number %}Unit {{ v.unit_number }}{% else %}(no unit #){% endif %} — {{ v.year }} {{ v.make }} {{ v.model }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">From</label>
+                    <input class="form-control" type="date" name="start_date" value="{{ start_date }}" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">To</label>
+                    <input class="form-control" type="date" name="end_date" value="{{ end_date }}" required>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label d-block">Documentation Requested</label>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" name="doc_type" value="work_orders" id="docWO"
+                           {% if not ran_report or 'work_orders' in doc_types %}checked{% endif %}>
+                    <label class="form-check-label" for="docWO">Work Orders</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" name="doc_type" value="inspections" id="docInsp"
+                           {% if not ran_report or 'inspections' in doc_types %}checked{% endif %}>
+                    <label class="form-check-label" for="docInsp">Inspection Reports</label>
+                </div>
+            </div>
+
+            <button class="btn btn-primary" type="submit">Generate Report</button>
+        </form>
+    </div>
+</div>
+
+{% if ran_report %}
+<div id="audit-report" class="no-print">
+    <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+            <h2 class="mb-1">DOT Audit Documentation Report</h2>
+            <p class="text-muted mb-0">
+                Asset: <strong>{% if selected_vehicle %}{% if selected_vehicle.unit_number %}Unit {{ selected_vehicle.unit_number }}{% else %}(no unit #){% endif %} — {{ selected_vehicle.year }} {{ selected_vehicle.make }} {{ selected_vehicle.model }}{% if selected_vehicle.vin %} — VIN {{ selected_vehicle.vin }}{% endif %}{% else %}All Assets{% endif %}</strong><br>
+                Period: <strong>{{ start_date }}</strong> through <strong>{{ end_date }}</strong><br>
+                Generated: <span class="mono">{{ generated_at }}</span>
+            </p>
+        </div>
+        <button class="btn btn-outline-secondary no-print" type="button" onclick="window.print()">Print / Save as PDF</button>
+    </div>
+
+    {% if 'work_orders' in doc_types %}
+    <h3>Work Orders <span class="text-muted">({{ work_orders|length }})</span></h3>
+    {% if work_orders %}
+    <table class="table table-bordered mb-4">
+        <thead>
+            <tr>
+                <th>W/O</th><th>Unit</th><th>Closed</th><th>Description</th><th>Assigned To</th><th>Hours</th><th>Parts</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for w in work_orders %}
+            <tr>
+                <td class="mono">{{ w.id }}</td>
+                <td>{% if w.unit_number %}Unit {{ w.unit_number }}{% else %}(no unit #){% endif %} — {{ w.year }} {{ w.make }} {{ w.model }}</td>
+                <td class="mono">{{ w.closed_at[:10] if w.closed_at else "—" }}</td>
+                <td>{{ w.description or "—" }}{% if w.notes %}<div class="text-muted small">{{ w.notes }}</div>{% endif %}</td>
+                <td>{{ w.assigned_to or "—" }}</td>
+                <td class="mono">{{ w.hours or "—" }}</td>
+                <td>{% if w.parts %}{% for p in w.parts %}{{ p.part_name }}{% if p.quantity > 1 %} (x{{ p.quantity }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted mb-4">No closed work orders in this period.</p>
+    {% endif %}
+    {% endif %}
+
+    {% if 'inspections' in doc_types %}
+    <h3>Inspection Reports <span class="text-muted">({{ inspection_reports|length }})</span></h3>
+    {% if inspection_reports %}
+        {% for r in inspection_reports %}
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>{% if r.unit_number %}Unit {{ r.unit_number }}{% else %}(no unit #){% endif %} — {{ r.year }} {{ r.make }} {{ r.model }} — {{ r.inspection_date }}</span>
+                <span class="text-muted" style="text-transform: none; letter-spacing: 0;">
+                    {% if r.inspector_name %}Inspector: {{ r.inspector_name }}{% endif %}
+                    {% if r.mileage %} · Mileage: <span class="mono">{{ r.mileage }}</span>{% endif %}
+                </span>
+            </div>
+            <ul class="list-group list-group-flush">
+                {% for i in r.checklist_items %}
+                <li class="list-group-item d-flex justify-content-between align-items-center
+                    {% if i.status == 'needs_attention' %}list-group-item-warning
+                    {% elif i.status == 'out_of_spec' %}list-group-item-danger{% endif %}">
+                    <span>{{ i.item }}{% if i.comments %} — <span class="text-muted">{{ i.comments }}</span>{% endif %}</span>
+                    <span class="badge {% if i.status == 'good' %}bg-success{% elif i.status == 'needs_attention' %}bg-warning{% else %}bg-danger{% endif %}">{{ status_labels[i.status] }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% if r.notes %}
+            <div class="card-body">
+                <strong>Notes:</strong> {{ r.notes }}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    {% else %}
+    <p class="text-muted mb-4">No inspection reports in this period.</p>
+    {% endif %}
+    {% endif %}
+</div>
+
+{# Printed/PDF output: the same structured sheets used on the individual work
+   order and inspection report pages, listed one after another. #}
+{% set ns = namespace(first=true) %}
+{% if 'work_orders' in doc_types %}
+    {% for w in work_orders %}
+    <div class="{% if not ns.first %}print-page-break{% endif %}">
+        {{ sheets.work_order_print_sheet(w) }}
+    </div>
+    {% set ns.first = false %}
+    {% endfor %}
+{% endif %}
+{% if 'inspections' in doc_types %}
+    {% for r in inspection_reports %}
+    <div class="{% if not ns.first %}print-page-break{% endif %}">
+        {{ sheets.inspection_print_sheet(r, r.checklist_items, status_labels) }}
+    </div>
+    {% set ns.first = false %}
+    {% endfor %}
+{% endif %}
+{% endif %}
+
+{% endblock %}

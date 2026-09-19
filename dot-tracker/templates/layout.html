@@ -4,19 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{% endblock %} - DOT Fleet Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="/static/styles.css" rel="stylesheet">
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark px-3">
-        <a class="navbar-brand" href="/">DOT Fleet Tracker</a>
+    <nav class="navbar navbar-expand-lg navbar-dark px-3 no-print">
+        <a class="navbar-brand" href="/">DOT <span>Fleet</span> Tracker</a>
         {% if session.user_id %}
-        <div class="ms-auto">
-            <a class="btn btn-outline-light btn-sm" href="/vehicles">Vehicles</a>
-            <a class="btn btn-outline-light btn-sm" href="/work-orders">Work Orders</a>
-            <a class="btn btn-outline-light btn-sm" href="/inspections">Inspections</a>
-            <a class="btn btn-outline-light btn-sm" href="/inventory">Inventory</a>
-            <a class="btn btn-outline-light btn-sm" href="/logout">Log Out</a>
+        <div class="ms-auto nav-links d-flex align-items-center flex-wrap">
+            <a href="/vehicles" class="{% if request.path.startswith('/vehicles') %}active{% endif %}">Vehicles</a>
+            <a href="/work-orders" class="{% if request.path.startswith('/work-orders') %}active{% endif %}">Work Orders</a>
+            <a href="/inspections" class="{% if request.path.startswith('/inspections') %}active{% endif %}">Inspections</a>
+            <a href="/inventory" class="{% if request.path.startswith('/inventory') %}active{% endif %}">Inventory</a>
+            <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
+            <a href="/logout" class="logout-link">Log Out</a>
         </div>
         {% endif %}
     </nav>
@@ -25,7 +29,7 @@
         {% with messages = get_flashed_messages() %}
             {% if messages %}
                 {% for message in messages %}
-                    <div class="alert alert-warning">{{ message }}</div>
+                    <div class="alert alert-warning no-print">{{ message }}</div>
                 {% endfor %}
             {% endif %}
         {% endwith %}

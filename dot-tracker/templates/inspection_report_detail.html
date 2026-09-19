@@ -1,19 +1,23 @@
 {% extends "layout.html" %}
+{% import "_print_sheets.html" as sheets %}
 {% block title %}Inspection Report{% endblock %}
 {% block main %}
 
-<a href="/inspections" class="btn btn-sm btn-outline-secondary mb-3">&larr; Back to Inspections</a>
+<a href="/inspections" class="btn btn-sm btn-outline-secondary mb-3 no-print">&larr; Back to Inspections</a>
 
-<h2>
-    {% if report.unit_number %}Unit {{ report.unit_number }}{% else %}(no unit #){% endif %} — {{ report.year }} {{ report.make }} {{ report.model }}
-</h2>
-<p class="text-muted">
+<div class="d-flex justify-content-between align-items-start no-print">
+    <h2>
+        {% if report.unit_number %}Unit {{ report.unit_number }}{% else %}(no unit #){% endif %} — {{ report.year }} {{ report.make }} {{ report.model }}
+    </h2>
+    <button class="btn btn-outline-secondary" type="button" onclick="window.print()">Print / Save as PDF</button>
+</div>
+<p class="text-muted no-print">
     Inspected {{ report.inspection_date }}
     {% if report.inspector_name %} by {{ report.inspector_name }}{% endif %}
     {% if report.mileage %} — Mileage: {{ report.mileage }}{% endif %}
 </p>
 
-<div class="card mb-3">
+<div class="card mb-3 no-print">
     <ul class="list-group list-group-flush">
         {% for i in items %}
         <li class="list-group-item
@@ -36,7 +40,7 @@
 </div>
 
 {% if report.notes %}
-<div class="card mb-3">
+<div class="card mb-3 no-print">
     <div class="card-header">Notes</div>
     <div class="card-body">
         <p class="mb-0">{{ report.notes }}</p>
@@ -57,5 +61,7 @@
     })();
 </script>
 {% endif %}
+
+{{ sheets.inspection_print_sheet(report, items, status_labels) }}
 
 {% endblock %}

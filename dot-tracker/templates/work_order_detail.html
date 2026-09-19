@@ -1,25 +1,27 @@
 {% extends "layout.html" %}
+{% import "_print_sheets.html" as sheets %}
 {% block title %}W/O: {{ w.id }}{% endblock %}
 {% block main %}
 
-<a href="/work-orders" class="btn btn-sm btn-outline-secondary mb-3">&larr; Back to Work Orders</a>
+<a href="/work-orders" class="btn btn-sm btn-outline-secondary mb-3 no-print">&larr; Back to Work Orders</a>
 
-<h2>W/O: {{ w.id }}</h2>
+<h2 class="no-print">W/O: {{ w.id }}</h2>
 
-<div class="d-flex gap-2 mb-4">
+<div class="d-flex gap-2 mb-4 no-print">
     <button class="btn btn-outline-secondary" type="button" id="edit-wo-btn">Edit</button>
     {% if w.status == 'open' %}
     <form action="/work-orders/{{ w.id }}/close" method="post" class="m-0">
         <button class="btn btn-outline-success" type="submit">Close</button>
     </form>
     {% endif %}
+    <button class="btn btn-outline-secondary" type="button" onclick="window.print()">Print / Save as PDF</button>
     <form action="/work-orders/{{ w.id }}/delete" method="post" class="m-0"
           onsubmit="return confirm('Delete this work order? This cannot be undone.');">
         <button class="btn btn-outline-danger" type="submit">Delete</button>
     </form>
 </div>
 
-<div class="card mb-4">
+<div class="card mb-4 no-print">
     <div class="card-body">
         {% if w.status == 'open' %}
         <span class="badge bg-warning text-dark">Open</span>
@@ -75,7 +77,7 @@
     </div>
 </div>
 
-<div class="card mb-4 d-none" id="edit-wo-panel">
+<div class="card mb-4 d-none no-print" id="edit-wo-panel">
     <div class="card-header">Edit Work Order</div>
     <div class="card-body">
         <form action="/work-orders/{{ w.id }}/edit" method="post" enctype="multipart/form-data">
@@ -229,5 +231,7 @@
         partsList.querySelectorAll(".part-row").forEach(wireRemove);
     })();
 </script>
+
+{{ sheets.work_order_print_sheet(w) }}
 
 {% endblock %}

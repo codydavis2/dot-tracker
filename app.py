@@ -7,13 +7,30 @@ import uuid
 from datetime import date, datetime
 
 from flask import Flask, abort, flash, redirect, render_template, request, send_from_directory, session
+from dotenv import load_dotenv
 from flask_session import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from helpers import generate_reminder_dates, login_required, reminder_status, usd
 
+# Project root (the folder this file lives in). Default paths are anchored here so they
+# don't depend on the directory the app happens to be started from.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Load settings from a local .env file if there is one. Real environment variables win.
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+
+
+def _path_setting(name, default):
+    """Read a filesystem path from the environment; relative paths are resolved
+    against the project root, not the current working directory."""
+    return os.path.join(BASE_DIR, os.environ.get(name) or default)
+
+
 app = Flask(__name__)
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or "dev-only-insecure-secret-key"
+app.config["DATABASE"] = _path_setting("DATABASE", "dot_tracker.db")
 
 # Jinja filters
 app.jinja_env.filters["usd"] = usd
@@ -23,12 +40,10 @@ app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_TYPE"] = "filesystem"
 Session(app)
 
-DATABASE = "dot_tracker.db"
-
 # Work order attachments (invoices, quotes, photos) — stored outside static/ so
 # they're only reachable through the login-gated download route, not served directly.
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads", "work_orders")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.config["UPLOAD_DIR"] = _path_setting("UPLOAD_DIR", os.path.join("uploads", "work_orders"))
+os.makedirs(app.config["UPLOAD_DIR"], exist_ok=True)
 ALLOWED_ATTACHMENT_EXTENSIONS = {
     "png", "jpg", "jpeg", "gif", "webp", "heic",
     "pdf", "doc", "docx", "xls", "xlsx", "txt", "csv",
@@ -48,7 +63,7 @@ INSPECTION_STATUS_LABELS = {"good": "Good", "needs_attention": "Needs Attention"
 
 
 def get_db():
-    conn = sqlite3.connect(DATABASE)
+    conn = sqlite3.connect(app.config["DATABASE"])
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -69,7 +84,7 @@ def file_too_large(e):
 def save_work_order_attachments(db, work_order_id, files):
     """Save uploaded files for a work order to disk and record them in the DB.
     Silently skips empty file inputs and disallowed extensions."""
-    wo_dir = os.path.join(UPLOAD_DIR, str(work_order_id))
+    wo_dir = os.path.join(app.config["UPLOAD_DIR"], str(work_order_id))
     for f in files:
         if not f or not f.filename:
             continue
@@ -899,7 +914,7 @@ def delete_work_order(work_order_id):
     db.commit()
     db.close()
 
-    wo_dir = os.path.join(UPLOAD_DIR, str(work_order_id))
+    wo_dir = os.path.join(app.config["UPLOAD_DIR"], str(work_order_id))
     shutil.rmtree(wo_dir, ignore_errors=True)
 
     flash("Work order deleted.")
@@ -1009,7 +1024,7 @@ def download_attachment(work_order_id, attachment_id):
     if attachment is None:
         abort(404)
 
-    wo_dir = os.path.join(UPLOAD_DIR, str(work_order_id))
+    wo_dir = os.path.join(app.config["UPLOAD_DIR"], str(work_order_id))
     return send_from_directory(
         wo_dir,
         attachment["stored_filename"],
@@ -1038,7 +1053,7 @@ def delete_attachment(work_order_id, attachment_id):
         flash("Attachment not found.")
         return redirect("/work-orders")
 
-    wo_dir = os.path.join(UPLOAD_DIR, str(work_order_id))
+    wo_dir = os.path.join(app.config["UPLOAD_DIR"], str(work_order_id))
     try:
         os.remove(os.path.join(wo_dir, attachment["stored_filename"]))
     except OSError:
@@ -1292,4 +1307,4 @@ def audit():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1")

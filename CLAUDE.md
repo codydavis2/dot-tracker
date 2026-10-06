@@ -29,11 +29,21 @@ than invent it.
 
 ## Current state (update this section as milestones complete)
 
-- App code lives in the nested `dot-tracker/` folder (app.py, helpers.py, schema.sql, templates/, static/).
-- Currently SQLite with single-user ownership (`user_id` on data tables). Being refactored to
-  multi-tenant Postgres with `company_id`. Until that refactor lands, do not add new features
-  on top of the old `user_id` model.
-- `app.py` is ~1,300 lines and is planned to be split into Flask blueprints.
+- Flat repo: everything lives at the repo root (no nested `dot-tracker/` folder).
+- App code is the `app/` package with a `create_app()` factory (`app/__init__.py`), `get_db()` in
+  `app/db.py`, and one blueprint per feature: `auth`, `dashboard`, `vehicles` (incl. maintenance
+  logs + DTCs), `inspections` (reports + reminders), `work_orders` (incl. attachments),
+  `inventory`, `audit`. Templates and static files are in `app/templates/` and `app/static/`.
+  URL paths are hard-coded in templates and redirects (no `url_for`).
+- Config comes from environment variables / `.env` (`SECRET_KEY`, `DATABASE`, `UPLOAD_DIR`,
+  `FLASK_DEBUG`, `POSTGRES_*`); see `.env.example`.
+- Still SQLite with single-user ownership (`user_id` on data tables), built from `schema.sql`.
+  Being refactored to multi-tenant Postgres with `company_id` (M1). Until that refactor lands,
+  do not add new features on top of the old `user_id` model.
+- A PostgreSQL 16 container exists (`docker-compose.yml`) but the app does not use it yet.
+- A pytest suite exists in `tests/` (characterization tests of current behavior, incl. per-user
+  ownership checks). Known bugs are recorded as `xfail(strict=True)` tests with a reason; when
+  fixing one, remove its marker.
 
 ## NON-NEGOTIABLE RULES
 

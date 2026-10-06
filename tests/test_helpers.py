@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from helpers import add_months, generate_reminder_dates, reminder_status, usd
+from app.helpers import add_months, generate_reminder_dates, reminder_status, usd
 
 
 @pytest.mark.parametrize("start, months, expected", [

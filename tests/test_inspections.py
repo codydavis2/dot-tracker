@@ -2,11 +2,8 @@ from datetime import date
 
 import pytest
 
+from app.constants import INSPECTION_CHECKLIST as CHECKLIST
 from conftest import add_inspection_report, add_vehicle, flashes
-
-import app as app_module
-
-CHECKLIST = app_module.INSPECTION_CHECKLIST
 
 
 def test_inspections_page(client, captured):

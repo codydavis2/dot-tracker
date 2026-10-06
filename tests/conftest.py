@@ -22,11 +22,11 @@ _import_dir = tempfile.mkdtemp(prefix="dot-tracker-import-")
 os.environ["DATABASE"] = os.path.join(_import_dir, "unused.db")
 os.environ["UPLOAD_DIR"] = os.path.join(_import_dir, "uploads")
 
-import app as app_module  # noqa: E402
+from app import create_app  # noqa: E402
 
 
 @pytest.fixture
-def app(tmp_path, monkeypatch):
+def app(tmp_path):
     db_path = tmp_path / "test.db"
     upload_dir = tmp_path / "uploads"
     upload_dir.mkdir()
@@ -35,11 +35,11 @@ def app(tmp_path, monkeypatch):
     conn.executescript((ROOT / "schema.sql").read_text())
     conn.close()
 
-    flask_app = app_module.app
-    monkeypatch.setitem(flask_app.config, "TESTING", True)
-    monkeypatch.setitem(flask_app.config, "DATABASE", str(db_path))
-    monkeypatch.setitem(flask_app.config, "UPLOAD_DIR", str(upload_dir))
-    return flask_app
+    return create_app({
+        "TESTING": True,
+        "DATABASE": str(db_path),
+        "UPLOAD_DIR": str(upload_dir),
+    })
 
 
 @pytest.fixture

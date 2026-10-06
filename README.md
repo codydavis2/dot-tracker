@@ -58,24 +58,68 @@ I was populating the dev database with real sample data (seeded vehicles, work o
 
 ## Setup
 
+All commands run from the repo root.
+
 ```bash
+# 1. Python environment
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Build the database
-sqlite3 dot_tracker.db < schema.sql
+# 2. Local settings — copy the example, then edit .env
+#    (set SECRET_KEY; set FLASK_DEBUG=1 for local development)
+cp .env.example .env
 
-# Run
-flask run --debug --host=0.0.0.0
+# 3. Build the SQLite database (first time only)
+sqlite3 dot_tracker.db < schema.sql
 ```
+
+`.env` is gitignored. Every setting is explained in `.env.example`. Relative paths for `DATABASE` and `UPLOAD_DIR` are resolved from the repo root, so it doesn't matter which folder you start the app from.
+
+## Running the app
+
+```bash
+flask run --host=0.0.0.0
+```
+
+Flask finds the `create_app()` factory in the `app/` package on its own. Debug mode (auto-reload, in-browser tracebacks) is **off unless `FLASK_DEBUG=1`** is set in `.env`. `--host=0.0.0.0` is needed for port forwarding in Codespaces/containers.
+
+## Running the tests
+
+```bash
+pytest
+```
+
+Each test runs against a fresh temporary SQLite database built from `schema.sql` and a temporary upload folder. Your real `dot_tracker.db` and `uploads/` are never touched. Tests marked `xfail` are known bugs recorded on purpose: each one's `reason` explains the bug, and they flip to failing (strict) once the bug is fixed, as a reminder to remove the marker.
+
+## PostgreSQL (not used by the app yet)
+
+The app still runs on SQLite. A PostgreSQL 16 container is ready for the upcoming multi-tenant work:
+
+```bash
+docker compose up -d        # start (credentials come from POSTGRES_* in .env)
+docker compose ps           # should show "healthy"
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'   # open a SQL prompt
+docker compose down         # stop, keep data
+docker compose down -v      # stop and delete the data volume
+```
+
+The database is created with the `POSTGRES_*` credentials the first time the container starts. Changing them in `.env` later has no effect until you run `docker compose down -v`.
 
 ## Project layout
 
+- `app/` — the Flask application package
+  - `__init__.py` — `create_app()` factory: loads config from the environment / `.env`, sets up sessions, registers blueprints
+  - `db.py` — `get_db()` SQLite connection helper
+  - `auth.py`, `dashboard.py`, `vehicles.py` (incl. maintenance logs + DTCs), `inspections.py` (reports + reminders), `work_orders.py` (incl. attachments), `inventory.py`, `audit.py` — one blueprint per feature. Every vehicle-, work-order-, and inventory-scoped route re-checks `WHERE user_id = ?` (or a join back to `vehicles.user_id`) before returning or mutating anything
+  - `constants.py` — the inspection checklist and status labels
+  - `helpers.py` — `login_required`, `reminder_status()` (buckets a due date into overdue/due_soon/upcoming), the recurring-date-generation logic, and the `usd` Jinja filter
+  - `templates/` — Bootstrap 5 pages; interactive bits (expanding parts lists, toggle-able "new item" forms, the inspection checklist) are plain vanilla JS, no framework
+  - `static/` — stylesheet
 - `schema.sql` — 14 tables: users, vehicles, dot_details, maintenance_logs + maintenance_parts, dtc_codes + dtc_reference, work_orders + work_order_parts + work_order_attachments, inspection_reminders, inspection_reports + inspection_report_items, inventory
-- `app.py` — all routes; every vehicle-, work-order-, and inventory-scoped route re-checks `WHERE user_id = ?` (or a join back to `vehicles.user_id`) before returning or mutating anything
-- `helpers.py` — `login_required`, `reminder_status()` (buckets a due date into overdue/due_soon/upcoming), the recurring-date-generation logic, and the `usd` Jinja filter
-- `templates/` — Bootstrap 5 pages; interactive bits (expanding parts lists, toggle-able "new item" forms, the inspection checklist) are plain vanilla JS, no framework
+- `tests/` — pytest suite (see "Running the tests")
+- `docker-compose.yml` — local PostgreSQL 16 container
+- `.env.example` — every setting, with an explanation of each
 
 ## What I'd build next
 

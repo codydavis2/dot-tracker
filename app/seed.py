@@ -5,9 +5,11 @@ from datetime import date, datetime, timedelta, timezone
 import click
 import psycopg
 from flask import current_app
+from flask.cli import with_appcontext
 from psycopg.rows import dict_row
 from werkzeug.security import generate_password_hash
 
+from .config import NOT_CONFIGURED_MESSAGE
 from .constants import INSPECTION_CHECKLIST
 
 DEMO_COMPANY_NAME = "Demo Fleet Co"
@@ -169,8 +171,11 @@ def seed_demo(conn, today=None):
 
 
 @click.command("seed-demo")
+@with_appcontext
 def seed_demo_command():
     """Create the "Demo Fleet Co" company with sample users, vehicles and records."""
+    if not current_app.config["DATABASE_URL"]:
+        raise click.ClickException(NOT_CONFIGURED_MESSAGE)
     with psycopg.connect(current_app.config["DATABASE_URL"], row_factory=dict_row) as conn:
         exists = conn.execute("SELECT 1 FROM companies WHERE name = %s", (DEMO_COMPANY_NAME,)).fetchone()
         if exists:

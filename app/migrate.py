@@ -11,8 +11,9 @@ import re
 import click
 import psycopg
 from flask import current_app
+from flask.cli import with_appcontext
 
-from .config import PROJECT_ROOT
+from .config import NOT_CONFIGURED_MESSAGE, PROJECT_ROOT
 
 MIGRATIONS_DIR = os.path.join(PROJECT_ROOT, "migrations")
 FILENAME_PATTERN = re.compile(r"^\d{3}_[a-z0-9_]+\.sql$")
@@ -55,8 +56,11 @@ def apply_migrations(database_url, echo=print):
 
 
 @click.command("migrate")
+@with_appcontext
 def migrate_command():
     """Apply any new SQL files in migrations/ to the database."""
+    if not current_app.config["DATABASE_URL"]:
+        raise click.ClickException(NOT_CONFIGURED_MESSAGE)
     applied = apply_migrations(current_app.config["DATABASE_URL"], echo=click.echo)
     click.echo(f"Applied {len(applied)} migration(s)." if applied else "Database is up to date.")
 

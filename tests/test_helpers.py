@@ -1,8 +1,10 @@
-from datetime import date, timedelta
+
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from app.helpers import add_months, generate_reminder_dates, reminder_status, usd
+from app.helpers import (add_months, format_date, format_datetime, generate_reminder_dates, reminder_status,
+                         usd)
 
 
 @pytest.mark.parametrize("start, months, expected", [
@@ -69,12 +71,21 @@ def test_unknown_interval_raises():
 
 def test_reminder_status_buckets():
     today = date.today()
-    assert reminder_status((today - timedelta(days=1)).isoformat()) == "overdue"
-    assert reminder_status(today.isoformat()) == "due_soon"
-    assert reminder_status((today + timedelta(days=14)).isoformat()) == "due_soon"
-    assert reminder_status((today + timedelta(days=15)).isoformat()) == "upcoming"
+    assert reminder_status(today - timedelta(days=1)) == "overdue"
+    assert reminder_status(today) == "due_soon"
+    assert reminder_status(today + timedelta(days=14)) == "due_soon"
+    assert reminder_status(today + timedelta(days=15)) == "upcoming"
 
 
 def test_usd():
     assert usd(None) == "—"
     assert usd(1234.5) == "$1,234.50"
+
+
+def test_date_filters():
+    late_evening_utc = datetime(2026, 3, 31, 23, 30, tzinfo=timezone.utc)
+    assert format_date(None) == ""
+    assert format_date(date(2026, 3, 1)) == "2026-03-01"
+    assert format_date(late_evening_utc) == "2026-03-31"
+    assert format_datetime(None) == ""
+    assert format_datetime(late_evening_utc) == "2026-03-31 23:30 UTC"

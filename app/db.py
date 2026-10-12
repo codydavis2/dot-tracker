@@ -2,12 +2,16 @@ import psycopg
 from flask import current_app, g
 from psycopg.rows import dict_row
 
+from .config import NOT_CONFIGURED_MESSAGE
+
 
 def get_db():
     """Return this request's database connection, opening it on first use.
     Rows come back as dicts. The connection is closed automatically when the
     request ends (see close_db), so routes never close it themselves."""
     if "db" not in g:
+        if not current_app.config["DATABASE_URL"]:
+            raise RuntimeError(NOT_CONFIGURED_MESSAGE)
         g.db = psycopg.connect(current_app.config["DATABASE_URL"], row_factory=dict_row)
     return g.db
 

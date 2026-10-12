@@ -30,8 +30,24 @@ def _postgres_conninfo(dbname):
 
 
 def database_url():
-    return os.environ.get("DATABASE_URL") or _postgres_conninfo(os.environ.get("POSTGRES_DB"))
+    """The app's database, or None if neither DATABASE_URL nor POSTGRES_DB is set."""
+    if os.environ.get("DATABASE_URL"):
+        return os.environ["DATABASE_URL"]
+    if os.environ.get("POSTGRES_DB"):
+        return _postgres_conninfo(os.environ["POSTGRES_DB"])
+    return None
 
 
 def test_database_url():
-    return os.environ.get("TEST_DATABASE_URL") or _postgres_conninfo(f"{os.environ.get('POSTGRES_DB')}_test")
+    """The database pytest wipes and uses, or None if neither TEST_DATABASE_URL nor POSTGRES_DB is set."""
+    if os.environ.get("TEST_DATABASE_URL"):
+        return os.environ["TEST_DATABASE_URL"]
+    if os.environ.get("POSTGRES_DB"):
+        return _postgres_conninfo(f"{os.environ['POSTGRES_DB']}_test")
+    return None
+
+
+NOT_CONFIGURED_MESSAGE = (
+    "No database configured. Copy .env.example to .env (cp .env.example .env) "
+    "and start Postgres with: docker compose up -d"
+)

@@ -76,7 +76,7 @@
     <table class="table table-bordered mb-4">
         <thead>
             <tr>
-                <th>W/O</th><th>Unit</th><th>Closed</th><th>Description</th><th>Assigned To</th><th>Hours</th><th>Parts</th>
+                <th>W/O</th><th>Unit</th><th>Closed</th><th>Description</th><th>Completed By</th><th>Hours</th><th>Parts</th>
             </tr>
         </thead>
         <tbody>
@@ -84,9 +84,9 @@
             <tr>
                 <td class="mono">{{ w.id }}</td>
                 <td>{% if w.unit_number %}Unit {{ w.unit_number }}{% else %}(no unit #){% endif %} — {{ w.year }} {{ w.make }} {{ w.model }}</td>
-                <td class="mono">{{ w.closed_at[:10] if w.closed_at else "—" }}</td>
+                <td class="mono">{{ w.closed_at|date or "—" }}</td>
                 <td>{{ w.description or "—" }}{% if w.notes %}<div class="text-muted small">{{ w.notes }}</div>{% endif %}</td>
-                <td>{{ w.assigned_to or "—" }}</td>
+                <td>{{ w.performed_by_name or "—" }}</td>
                 <td class="mono">{{ w.hours or "—" }}</td>
                 <td>{% if w.parts %}{% for p in w.parts %}{{ p.part_name }}{% if p.quantity > 1 %} (x{{ p.quantity }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}—{% endif %}</td>
             </tr>
@@ -106,7 +106,7 @@
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>{% if r.unit_number %}Unit {{ r.unit_number }}{% else %}(no unit #){% endif %} — {{ r.year }} {{ r.make }} {{ r.model }} — {{ r.inspection_date }}</span>
                 <span class="text-muted" style="text-transform: none; letter-spacing: 0;">
-                    {% if r.inspector_name %}Inspector: {{ r.inspector_name }}{% endif %}
+                    Inspector: {{ r.performed_by_name }}
                     {% if r.mileage %} · Mileage: <span class="mono">{{ r.mileage }}</span>{% endif %}
                 </span>
             </div>

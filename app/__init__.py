@@ -5,7 +5,7 @@ from flask_session import Session
 
 from . import audit, auth, dashboard, db, inspections, inventory, migrate, vehicles, work_orders
 from .config import database_url, path_setting
-from .helpers import usd
+from .helpers import format_date, format_datetime, usd
 
 
 def create_app(test_config=None):
@@ -13,6 +13,8 @@ def create_app(test_config=None):
 
     # Jinja filters
     app.jinja_env.filters["usd"] = usd
+    app.jinja_env.filters["date"] = format_date
+    app.jinja_env.filters["datetime"] = format_datetime
 
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or "dev-only-insecure-secret-key"
     app.config["DATABASE_URL"] = database_url()

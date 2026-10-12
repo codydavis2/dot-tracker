@@ -1,7 +1,7 @@
 import calendar as calendar_module
 from datetime import date
 
-from flask import Blueprint, render_template, request, session
+from flask import Blueprint, g, render_template, request
 
 from .db import get_db
 from .helpers import login_required, reminder_status
@@ -13,28 +13,30 @@ bp = Blueprint("dashboard", __name__)
 @login_required
 def index():
     db = get_db()
+    company_id = g.user["company_id"]
 
     vehicles_all = db.execute(
-        "SELECT * FROM vehicles WHERE user_id = ?", (session["user_id"],)
+        "SELECT * FROM vehicles WHERE company_id = %s AND archived_at IS NULL ORDER BY id",
+        (company_id,),
     ).fetchall()
     vehicles = vehicles_all[:10]
     more_vehicles = len(vehicles_all) > 10
 
-    # Pull all open reminders for this user's vehicles, for the DOT compliance warning banner
+    # Pull all open reminders for this company's vehicles, for the DOT compliance warning banner
     reminders = db.execute(
         """
         SELECT inspection_reminders.*, vehicles.unit_number, vehicles.make, vehicles.model, vehicles.year
         FROM inspection_reminders
         JOIN vehicles ON vehicles.id = inspection_reminders.vehicle_id
-        WHERE vehicles.user_id = ? AND inspection_reminders.status != 'completed'
+        WHERE inspection_reminders.company_id = %s AND inspection_reminders.status != 'completed'
         ORDER BY inspection_reminders.due_date ASC
         """,
-        (session["user_id"],),
+        (company_id,),
     ).fetchall()
 
     # Attach a status bucket (overdue / due_soon / upcoming) for template coloring
     reminders_with_status = [
-        {**dict(r), "bucket": reminder_status(r["due_date"])} for r in reminders
+        {**r, "bucket": reminder_status(r["due_date"])} for r in reminders
     ]
 
     # Any DOT vehicle with an overdue annual inspection gets a hard warning
@@ -47,21 +49,23 @@ def index():
 
     open_work_order_rows = db.execute(
         """
-        SELECT work_orders.*, vehicles.unit_number, vehicles.make, vehicles.model, vehicles.year
+        SELECT work_orders.*, vehicles.unit_number, vehicles.make, vehicles.model, vehicles.year,
+               assigned_to.full_name AS assigned_to_name
         FROM work_orders
         JOIN vehicles ON vehicles.id = work_orders.vehicle_id
-        WHERE vehicles.user_id = ? AND work_orders.status = 'open'
+        LEFT JOIN users AS assigned_to ON assigned_to.id = work_orders.assigned_to_user_id
+        WHERE work_orders.company_id = %s AND work_orders.deleted_at IS NULL AND work_orders.status = 'open'
         ORDER BY
             CASE WHEN work_orders.scheduled_completion_date IS NULL THEN 1 ELSE 0 END,
             work_orders.scheduled_completion_date ASC
         """,
-        (session["user_id"],),
+        (company_id,),
     ).fetchall()
     open_work_orders_all = [
         {
-            **dict(w),
+            **w,
             "overdue": bool(
-                w["scheduled_completion_date"] and w["scheduled_completion_date"] < today.isoformat()
+                w["scheduled_completion_date"] and w["scheduled_completion_date"] < today
             ),
         }
         for w in open_work_order_rows
@@ -86,9 +90,9 @@ def index():
         SELECT inspection_reminders.*, vehicles.unit_number, vehicles.make, vehicles.model, vehicles.year
         FROM inspection_reminders
         JOIN vehicles ON vehicles.id = inspection_reminders.vehicle_id
-        WHERE vehicles.user_id = ? AND inspection_reminders.due_date BETWEEN ? AND ?
+        WHERE inspection_reminders.company_id = %s AND inspection_reminders.due_date BETWEEN %s AND %s
         """,
-        (session["user_id"], first_day.isoformat(), last_day.isoformat()),
+        (company_id, first_day, last_day),
     ).fetchall()
 
     calendar_work_orders = db.execute(
@@ -96,14 +100,15 @@ def index():
         SELECT work_orders.*, vehicles.unit_number, vehicles.make, vehicles.model, vehicles.year
         FROM work_orders
         JOIN vehicles ON vehicles.id = work_orders.vehicle_id
-        WHERE vehicles.user_id = ? AND work_orders.scheduled_completion_date BETWEEN ? AND ?
+        WHERE work_orders.company_id = %s AND work_orders.deleted_at IS NULL
+            AND work_orders.scheduled_completion_date BETWEEN %s AND %s
         """,
-        (session["user_id"], first_day.isoformat(), last_day.isoformat()),
+        (company_id, first_day, last_day),
     ).fetchall()
 
     events_by_day = {}
     for r in calendar_reminders:
-        day_num = int(r["due_date"][8:10])
+        day_num = r["due_date"].day
         vehicle_label = f"Unit {r['unit_number']}" if r["unit_number"] else f"{r['year']} {r['make']} {r['model']}"
         bucket = reminder_status(r["due_date"])
         css_class = "bg-success" if r["status"] == "completed" else (
@@ -116,7 +121,7 @@ def index():
         })
 
     for w in calendar_work_orders:
-        day_num = int(w["scheduled_completion_date"][8:10])
+        day_num = w["scheduled_completion_date"].day
         vehicle_label = f"Unit {w['unit_number']}" if w["unit_number"] else f"{w['year']} {w['make']} {w['model']}"
         css_class = "bg-warning text-dark" if w["status"] == "open" else "bg-secondary"
         events_by_day.setdefault(day_num, []).append({

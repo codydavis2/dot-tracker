@@ -53,7 +53,7 @@
                         {% if w.description %}<div class="small">{{ w.description }}</div>{% endif %}
                         <div class="small text-muted">
                             {% if w.scheduled_completion_date %}Scheduled completion: {{ w.scheduled_completion_date }}{% else %}No scheduled completion date{% endif %}
-                            {% if w.assigned_to %} | Assigned to: {{ w.assigned_to }}{% endif %}
+                            {% if w.assigned_to_name %} | Assigned to: {{ w.assigned_to_name }}{% endif %}
                         </div>
                     </div>
                     <a class="btn btn-sm btn-outline-secondary flex-shrink-0 ms-3" href="/vehicles/{{ w.vehicle_id }}">View</a>

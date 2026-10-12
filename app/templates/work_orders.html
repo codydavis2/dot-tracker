@@ -1,6 +1,7 @@
 {% extends "layout.html" %}
 {% block title %}Work Orders{% endblock %}
 {% block main %}
+{% import "_forms.html" as forms %}
 
 {% macro work_order_row(w) %}
 <li class="list-group-item">
@@ -41,7 +42,7 @@
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Created By</label>
-                    <input class="form-control" name="created_by" placeholder="Your name">
+                    {{ forms.person_select("created_by_user_id", people, g.user.id, required=true) }}
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Unit Number</label>
@@ -54,7 +55,7 @@
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Assigned To</label>
-                    <input class="form-control" name="assigned_to" placeholder="Mechanic">
+                    {{ forms.person_select("assigned_to_user_id", people, blank_label="Unassigned") }}
                 </div>
             </div>
 
@@ -62,6 +63,10 @@
                 <div class="col-md-3">
                     <label class="form-label">Scheduled Completion Date</label>
                     <input class="form-control" name="scheduled_completion_date" type="date">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Completed By <span class="text-muted small">(required if Closed)</span></label>
+                    {{ forms.person_select("performed_by_user_id", people, g.user.id) }}
                 </div>
             </div>
 

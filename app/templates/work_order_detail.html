@@ -2,6 +2,7 @@
 {% import "_print_sheets.html" as sheets %}
 {% block title %}W/O: {{ w.id }}{% endblock %}
 {% block main %}
+{% import "_forms.html" as forms %}
 
 <a href="/work-orders" class="btn btn-sm btn-outline-secondary mb-3 no-print">&larr; Back to Work Orders</a>
 
@@ -10,7 +11,9 @@
 <div class="d-flex gap-2 mb-4 no-print">
     <button class="btn btn-outline-secondary" type="button" id="edit-wo-btn">Edit</button>
     {% if w.status == 'open' %}
-    <form action="/work-orders/{{ w.id }}/close" method="post" class="m-0">
+    <form action="/work-orders/{{ w.id }}/close" method="post" class="m-0 d-flex gap-2 align-items-center">
+        <label class="small text-nowrap mb-0" for="close-completed-by">Completed by</label>
+        {{ forms.person_select("performed_by_user_id", people, g.user.id, required=true, id="close-completed-by") }}
         <button class="btn btn-outline-success" type="submit">Close</button>
     </form>
     {% endif %}
@@ -30,12 +33,13 @@
         {% endif %}
         <strong class="ms-2">{% if w.unit_number %}Unit {{ w.unit_number }}{% else %}(no unit #){% endif %} — {{ w.year }} {{ w.make }} {{ w.model }}</strong>
         {% if w.vin %}<div class="text-muted small mt-1">VIN: {{ w.vin }}</div>{% endif %}
-        <div class="text-muted small">Opened {{ w.created_at }}{% if w.closed_at %} | Closed {{ w.closed_at }}{% endif %}</div>
+        <div class="text-muted small">Opened {{ w.created_at|datetime }}{% if w.closed_at %} | Closed {{ w.closed_at|datetime }}{% endif %}</div>
         {% if w.scheduled_completion_date %}<div class="text-muted small">Scheduled completion: {{ w.scheduled_completion_date }}</div>{% endif %}
 
         <div class="small text-muted mt-2">
-            {% if w.created_by %}Created by: {{ w.created_by }}{% endif %}
-            {% if w.assigned_to %} | Assigned to: {{ w.assigned_to }}{% endif %}
+            Created by: {{ w.created_by_name }}
+            {% if w.assigned_to_name %} | Assigned to: {{ w.assigned_to_name }}{% endif %}
+            {% if w.performed_by_name %} | Completed by: {{ w.performed_by_name }}{% endif %}
             {% if w.hours %} | Hours: {{ w.hours }}{% endif %}
         </div>
 
@@ -91,7 +95,7 @@
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Created By</label>
-                    <input class="form-control" name="created_by" value="{{ w.created_by or '' }}">
+                    {{ forms.person_select("created_by_user_id", people, w.created_by_user_id, required=true) }}
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Unit Number</label>
@@ -103,14 +107,18 @@
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Assigned To</label>
-                    <input class="form-control" name="assigned_to" value="{{ w.assigned_to or '' }}">
+                    {{ forms.person_select("assigned_to_user_id", people, w.assigned_to_user_id, blank_label="Unassigned") }}
                 </div>
             </div>
 
             <div class="row mb-2">
                 <div class="col-md-3">
                     <label class="form-label">Scheduled Completion Date</label>
-                    <input class="form-control" name="scheduled_completion_date" type="date" value="{{ w.scheduled_completion_date or '' }}">
+                    <input class="form-control" name="scheduled_completion_date" type="date" value="{{ w.scheduled_completion_date|date }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Completed By <span class="text-muted small">(required if Closed)</span></label>
+                    {{ forms.person_select("performed_by_user_id", people, w.performed_by_user_id or g.user.id) }}
                 </div>
             </div>
 

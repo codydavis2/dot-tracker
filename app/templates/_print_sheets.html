@@ -19,15 +19,19 @@
             </tr>
             <tr>
                 <th>Created By</th>
-                <td>{% if w.created_by %}{{ w.created_by }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+                <td>{{ w.created_by_name }}</td>
                 <th>Assigned To</th>
-                <td>{% if w.assigned_to %}{{ w.assigned_to }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+                <td>{% if w.assigned_to_name %}{{ w.assigned_to_name }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
             </tr>
             <tr>
                 <th>Opened</th>
-                <td>{{ w.created_at[:10] if w.created_at else "" }}</td>
+                <td>{{ w.created_at|date }}</td>
                 <th>Closed</th>
-                <td>{% if w.closed_at %}{{ w.closed_at[:10] }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+                <td>{% if w.closed_at %}{{ w.closed_at|date }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+            </tr>
+            <tr>
+                <th>Completed By</th>
+                <td colspan="3">{% if w.performed_by_name %}{{ w.performed_by_name }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
             </tr>
             <tr>
                 <th>Scheduled Completion</th>
@@ -93,8 +97,8 @@
                 <td>{% if report.mileage %}{{ report.mileage }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
             </tr>
             <tr>
-                <th>Inspector Name</th>
-                <td colspan="3">{% if report.inspector_name %}{{ report.inspector_name }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
+                <th>Inspector</th>
+                <td colspan="3">{{ report.performed_by_name }}</td>
             </tr>
         </tbody>
     </table>

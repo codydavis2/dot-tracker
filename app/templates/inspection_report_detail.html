@@ -13,7 +13,7 @@
 </div>
 <p class="text-muted no-print">
     Inspected {{ report.inspection_date }}
-    {% if report.inspector_name %} by {{ report.inspector_name }}{% endif %}
+    by {{ report.performed_by_name }}
     {% if report.mileage %} — Mileage: {{ report.mileage }}{% endif %}
 </p>
 

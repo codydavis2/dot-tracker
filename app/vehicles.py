@@ -1,18 +1,61 @@
-import sqlite3
 from datetime import date
 
-from flask import Blueprint, flash, redirect, render_template, request, session
+import psycopg
+from flask import Blueprint, abort, flash, g, redirect, render_template, request
 
 from .db import get_db
 from .helpers import login_required, reminder_status
+from .people import people_choices, validate_person
 
 bp = Blueprint("vehicles", __name__)
+
+
+def vehicle_choices(current_vehicle_id=None):
+    """Vehicles to list in a vehicle dropdown: the company's active (not archived) vehicles.
+    When editing a record, pass its current vehicle so it still shows if since archived."""
+    return get_db().execute(
+        """
+        SELECT id, unit_number, year, make, model, vin
+        FROM vehicles
+        WHERE company_id = %s AND (archived_at IS NULL OR id = %s)
+        ORDER BY unit_number, id
+        """,
+        (g.user["company_id"], current_vehicle_id),
+    ).fetchall()
+
+
+def find_vehicle_for_form(value, current_vehicle_id=None):
+    """Return the vehicle id submitted from a vehicle dropdown if it's one that may be
+    chosen (an active vehicle of this company, or the record's current vehicle), else None."""
+    try:
+        vehicle_id = int(value)
+    except (TypeError, ValueError):
+        return None
+    row = get_db().execute(
+        """
+        SELECT id FROM vehicles
+        WHERE id = %s AND company_id = %s AND (archived_at IS NULL OR id = %s)
+        """,
+        (vehicle_id, g.user["company_id"], current_vehicle_id),
+    ).fetchone()
+    return row["id"] if row else None
+
+
+def get_vehicle_or_404(vehicle_id):
+    vehicle = get_db().execute(
+        "SELECT * FROM vehicles WHERE id = %s AND company_id = %s",
+        (vehicle_id, g.user["company_id"]),
+    ).fetchone()
+    if vehicle is None:
+        abort(404)
+    return vehicle
 
 
 @bp.route("/vehicles", methods=["GET", "POST"])
 @login_required
 def vehicles():
     db = get_db()
+    company_id = g.user["company_id"]
 
     if request.method == "POST":
         unit_number = request.form.get("unit_number") or None
@@ -21,7 +64,7 @@ def vehicles():
         year = request.form.get("year")
         vin = request.form.get("vin") or None
         mileage = request.form.get("mileage") or 0
-        is_dot = 1 if request.form.get("is_dot_regulated") else 0
+        is_dot = bool(request.form.get("is_dot_regulated"))
         gvwr = request.form.get("gvwr") or None
 
         if not make or not model or not year:
@@ -29,29 +72,35 @@ def vehicles():
             return redirect("/vehicles")
 
         try:
-            cur = db.execute(
+            vehicle = db.execute(
                 """
-                INSERT INTO vehicles (user_id, unit_number, make, model, year, vin, mileage, is_dot_regulated, gvwr)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO vehicles (company_id, unit_number, make, model, year, vin, mileage, is_dot_regulated, gvwr)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
                 """,
-                (session["user_id"], unit_number, make, model, year, vin, mileage, is_dot, gvwr),
-            )
-        except sqlite3.IntegrityError:
-            flash(f"Unit number \"{unit_number}\" is already in use.")
+                (company_id, unit_number, make, model, year, vin, mileage, is_dot, gvwr),
+            ).fetchone()
+        except psycopg.errors.UniqueViolation as e:
+            db.rollback()
+            if e.diag.constraint_name == "vehicles_company_vin_key":
+                flash(f"VIN \"{vin}\" is already in use.")
+            else:
+                flash(f"Unit number \"{unit_number}\" is already in use.")
             return redirect("/vehicles")
-        vehicle_id = cur.lastrowid
+        vehicle_id = vehicle["id"]
 
         # If flagged DOT-regulated, create an empty dot_details row to fill in later
         if is_dot:
             db.execute(
-                "INSERT INTO dot_details (vehicle_id) VALUES (?)", (vehicle_id,)
+                "INSERT INTO dot_details (company_id, vehicle_id) VALUES (%s, %s)", (company_id, vehicle_id)
             )
 
         db.commit()
         return redirect(f"/vehicles/{vehicle_id}")
 
     rows = db.execute(
-        "SELECT * FROM vehicles WHERE user_id = ?", (session["user_id"],)
+        "SELECT * FROM vehicles WHERE company_id = %s AND archived_at IS NULL ORDER BY id",
+        (company_id,),
     ).fetchall()
     return render_template("vehicles.html", vehicles=rows)
 
@@ -60,33 +109,37 @@ def vehicles():
 @login_required
 def vehicle_detail(vehicle_id):
     db = get_db()
-
-    vehicle = db.execute(
-        "SELECT * FROM vehicles WHERE id = ? AND user_id = ?",
-        (vehicle_id, session["user_id"]),
-    ).fetchone()
-    if vehicle is None:
-        flash("Vehicle not found.")
-        return redirect("/vehicles")
+    company_id = g.user["company_id"]
+    vehicle = get_vehicle_or_404(vehicle_id)
 
     dot_details = None
     if vehicle["is_dot_regulated"]:
         dot_details = db.execute(
-            "SELECT * FROM dot_details WHERE vehicle_id = ?", (vehicle_id,)
+            "SELECT * FROM dot_details WHERE vehicle_id = %s AND company_id = %s", (vehicle_id, company_id)
         ).fetchone()
 
     reminders = db.execute(
-        "SELECT * FROM inspection_reminders WHERE vehicle_id = ? ORDER BY due_date ASC",
-        (vehicle_id,),
+        """
+        SELECT inspection_reminders.*, assigned_to.full_name AS assigned_to_name
+        FROM inspection_reminders
+        LEFT JOIN users AS assigned_to ON assigned_to.id = inspection_reminders.assigned_to_user_id
+        WHERE inspection_reminders.vehicle_id = %s AND inspection_reminders.company_id = %s
+        ORDER BY inspection_reminders.due_date ASC
+        """,
+        (vehicle_id, company_id),
     ).fetchall()
 
     work_order_rows = db.execute(
-        "SELECT * FROM work_orders WHERE vehicle_id = ? ORDER BY created_at DESC",
-        (vehicle_id,),
+        """
+        SELECT * FROM work_orders
+        WHERE vehicle_id = %s AND company_id = %s AND deleted_at IS NULL
+        ORDER BY created_at DESC
+        """,
+        (vehicle_id, company_id),
     ).fetchall()
 
     reminders_with_status = [
-        {**dict(r), "bucket": reminder_status(r["due_date"])} for r in reminders
+        {**r, "bucket": reminder_status(r["due_date"])} for r in reminders
     ]
 
     return render_template(
@@ -95,6 +148,7 @@ def vehicle_detail(vehicle_id):
         dot_details=dot_details,
         reminders=reminders_with_status,
         work_orders=work_order_rows,
+        people=people_choices(),
     )
 
 
@@ -104,30 +158,30 @@ def vehicle_detail(vehicle_id):
 @login_required
 def add_maintenance(vehicle_id):
     db = get_db()
-    owned = db.execute(
-        "SELECT id FROM vehicles WHERE id = ? AND user_id = ?",
-        (vehicle_id, session["user_id"]),
-    ).fetchone()
-    if owned is None:
-        flash("Vehicle not found.")
-        return redirect("/vehicles")
+    company_id = g.user["company_id"]
+    get_vehicle_or_404(vehicle_id)
+
+    performed_by, error = validate_person(request.form.get("performed_by_user_id"), "Performed by", required=True)
+    if error:
+        flash(error)
+        return redirect(f"/vehicles/{vehicle_id}")
 
     service_type = request.form.get("service_type")
-    log_date = request.form.get("log_date") or date.today().isoformat()
+    log_date = request.form.get("log_date") or date.today()
     mileage = request.form.get("mileage_at_service") or None
     cost = request.form.get("cost") or None
     notes = request.form.get("notes") or None
-    mechanic_name = request.form.get("mechanic_name") or None
 
-    cursor = db.execute(
+    log = db.execute(
         """
         INSERT INTO maintenance_logs
-            (vehicle_id, log_date, service_type, mileage_at_service, cost, notes, mechanic_name)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+            (company_id, vehicle_id, log_date, service_type, mileage_at_service, cost, notes, performed_by_user_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
         """,
-        (vehicle_id, log_date, service_type, mileage, cost, notes, mechanic_name),
-    )
-    log_id = cursor.lastrowid
+        (company_id, vehicle_id, log_date, service_type, mileage, cost, notes, performed_by),
+    ).fetchone()
+    log_id = log["id"]
 
     part_names = request.form.getlist("part_name[]")
     part_quantities = request.form.getlist("part_quantity[]")
@@ -140,11 +194,11 @@ def add_maintenance(vehicle_id):
             qty = int(qty_str)
         except ValueError:
             qty = 1
-        parts.append((log_id, name, max(qty, 1)))
+        parts.append((company_id, log_id, name, max(qty, 1)))
 
     if parts:
-        db.executemany(
-            "INSERT INTO maintenance_parts (maintenance_log_id, part_name, quantity) VALUES (?, ?, ?)",
+        db.cursor().executemany(
+            "INSERT INTO maintenance_parts (company_id, maintenance_log_id, part_name, quantity) VALUES (%s, %s, %s, %s)",
             parts,
         )
 
@@ -158,28 +212,22 @@ def add_maintenance(vehicle_id):
 @login_required
 def add_dtc(vehicle_id):
     db = get_db()
-    owned = db.execute(
-        "SELECT id FROM vehicles WHERE id = ? AND user_id = ?",
-        (vehicle_id, session["user_id"]),
-    ).fetchone()
-    if owned is None:
-        flash("Vehicle not found.")
-        return redirect("/vehicles")
+    get_vehicle_or_404(vehicle_id)
 
     code = request.form.get("code", "").upper().strip()
 
-    # Look up plain-English description from reference table, if we have one
+    # Look up plain-English description from the shared reference table, if we have one
     ref = db.execute(
-        "SELECT description FROM dtc_reference WHERE code = ?", (code,)
+        "SELECT description FROM dtc_reference WHERE code = %s", (code,)
     ).fetchone()
     description = ref["description"] if ref else request.form.get("description")
 
     db.execute(
         """
-        INSERT INTO dtc_codes (vehicle_id, code, description, date_logged)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO dtc_codes (company_id, vehicle_id, code, description, date_logged)
+        VALUES (%s, %s, %s, %s, %s)
         """,
-        (vehicle_id, code, description, date.today().isoformat()),
+        (g.user["company_id"], vehicle_id, code, description, date.today()),
     )
     db.commit()
     return redirect(f"/vehicles/{vehicle_id}")

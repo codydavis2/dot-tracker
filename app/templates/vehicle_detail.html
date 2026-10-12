@@ -1,10 +1,12 @@
 {% extends "layout.html" %}
 {% block title %}{% if vehicle.unit_number %}Unit {{ vehicle.unit_number }}{% else %}{{ vehicle.year }} {{ vehicle.make }} {{ vehicle.model }}{% endif %}{% endblock %}
 {% block main %}
+{% import "_forms.html" as forms %}
 
 <h2>
     {% if vehicle.unit_number %}Unit {{ vehicle.unit_number }} — {% endif %}{{ vehicle.year }} {{ vehicle.make }} {{ vehicle.model }}
     {% if vehicle.is_dot_regulated %}<span class="badge bg-primary">DOT Regulated</span>{% endif %}
+    {% if vehicle.archived_at %}<span class="badge bg-secondary">Archived</span>{% endif %}
 </h2>
 <p class="text-muted">VIN: {{ vehicle.vin or "—" }} | Mileage: {{ vehicle.mileage }} | GVWR: {{ vehicle.gvwr or "—" }}</p>
 
@@ -32,7 +34,7 @@
                 {% if r.bucket == 'overdue' %}list-group-item-danger
                 {% elif r.bucket == 'due_soon' %}list-group-item-warning{% endif %}">
                 {{ r.reminder_type.replace('_', ' ')|title }} — due {{ r.due_date }} ({{ r.status }})
-                {% if r.mechanic_name %}<br><small class="text-muted">Mechanic: {{ r.mechanic_name }}</small>{% endif %}
+                {% if r.assigned_to_name %}<br><small class="text-muted">Assigned to: {{ r.assigned_to_name }}</small>{% endif %}
             </li>
             {% endfor %}
         </ul>
@@ -46,7 +48,8 @@
                 <option value="other">Other</option>
             </select>
             <input class="form-control mb-2" type="date" name="due_date" required>
-            <input class="form-control mb-2" name="mechanic_name" placeholder="Assigned mechanic (optional)">
+            <label class="form-label small mb-1">Assigned to (optional)</label>
+            <div class="mb-2">{{ forms.person_select("assigned_to_user_id", people, blank_label="Unassigned") }}</div>
             <select class="form-select mb-2" name="interval" id="reminder-interval">
                 <option value="none">Does not repeat</option>
                 <option value="weekly">Weekly</option>

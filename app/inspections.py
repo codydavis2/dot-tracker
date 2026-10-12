@@ -1,10 +1,12 @@
 from datetime import date
 
-from flask import Blueprint, flash, redirect, render_template, request, session
+from flask import Blueprint, abort, flash, g, redirect, render_template, request
 
 from .constants import INSPECTION_CHECKLIST, INSPECTION_STATUS_LABELS
 from .db import get_db
 from .helpers import generate_reminder_dates, login_required, reminder_status
+from .people import people_choices, validate_person
+from .vehicles import find_vehicle_for_form, get_vehicle_or_404, vehicle_choices
 
 bp = Blueprint("inspections", __name__)
 
@@ -13,58 +15,59 @@ bp = Blueprint("inspections", __name__)
 @login_required
 def inspections():
     db = get_db()
+    company_id = g.user["company_id"]
     rows = db.execute(
         """
-        SELECT inspection_reminders.*, vehicles.unit_number, vehicles.make, vehicles.model, vehicles.year
+        SELECT inspection_reminders.*, vehicles.unit_number, vehicles.make, vehicles.model, vehicles.year,
+               assigned_to.full_name AS assigned_to_name
         FROM inspection_reminders
         JOIN vehicles ON vehicles.id = inspection_reminders.vehicle_id
-        WHERE vehicles.user_id = ? AND inspection_reminders.status != 'completed'
+        LEFT JOIN users AS assigned_to ON assigned_to.id = inspection_reminders.assigned_to_user_id
+        WHERE inspection_reminders.company_id = %s AND inspection_reminders.status != 'completed'
         """,
-        (session["user_id"],),
+        (company_id,),
     ).fetchall()
 
     upcoming = sorted(
-        ({**dict(r), "bucket": reminder_status(r["due_date"])} for r in rows),
+        ({**r, "bucket": reminder_status(r["due_date"])} for r in rows),
         key=lambda r: r["due_date"],
     )
 
-    vehicles = db.execute(
-        "SELECT id, unit_number, year, make, model FROM vehicles WHERE user_id = ? ORDER BY unit_number",
-        (session["user_id"],),
-    ).fetchall()
     report_rows = db.execute(
         """
-        SELECT inspection_reports.*, vehicles.unit_number, vehicles.year, vehicles.make, vehicles.model
+        SELECT inspection_reports.*, vehicles.unit_number, vehicles.year, vehicles.make, vehicles.model,
+               performed_by.full_name AS performed_by_name
         FROM inspection_reports
         JOIN vehicles ON vehicles.id = inspection_reports.vehicle_id
-        WHERE vehicles.user_id = ?
+        JOIN users AS performed_by ON performed_by.id = inspection_reports.performed_by_user_id
+        WHERE inspection_reports.company_id = %s AND inspection_reports.deleted_at IS NULL
         ORDER BY inspection_reports.inspection_date DESC, inspection_reports.id DESC
         """,
-        (session["user_id"],),
+        (company_id,),
     ).fetchall()
     flagged_rows = db.execute(
         """
         SELECT inspection_report_items.inspection_report_id, COUNT(*) AS flagged_count
         FROM inspection_report_items
         JOIN inspection_reports ON inspection_reports.id = inspection_report_items.inspection_report_id
-        JOIN vehicles ON vehicles.id = inspection_reports.vehicle_id
-        WHERE vehicles.user_id = ? AND inspection_report_items.status IN ('needs_attention', 'out_of_spec')
+        WHERE inspection_report_items.company_id = %s AND inspection_reports.deleted_at IS NULL
+            AND inspection_report_items.status IN ('needs_attention', 'out_of_spec')
         GROUP BY inspection_report_items.inspection_report_id
         """,
-        (session["user_id"],),
+        (company_id,),
     ).fetchall()
-    db.close()
 
     flagged_by_report = {r["inspection_report_id"]: r["flagged_count"] for r in flagged_rows}
     reports = [
-        {**dict(r), "flagged_count": flagged_by_report.get(r["id"], 0)}
+        {**r, "flagged_count": flagged_by_report.get(r["id"], 0)}
         for r in report_rows
     ]
 
     return render_template(
         "inspections.html",
         upcoming=upcoming,
-        vehicles=vehicles,
+        vehicles=vehicle_choices(),
+        people=people_choices(),
         reports=reports,
         checklist=INSPECTION_CHECKLIST,
     )
@@ -74,29 +77,30 @@ def inspections():
 @login_required
 def add_inspection_report():
     db = get_db()
-    vehicle_id = request.form.get("vehicle_id")
-    owned = db.execute(
-        "SELECT id FROM vehicles WHERE id = ? AND user_id = ?",
-        (vehicle_id, session["user_id"]),
-    ).fetchone()
-    if owned is None:
-        db.close()
+    company_id = g.user["company_id"]
+    vehicle_id = find_vehicle_for_form(request.form.get("vehicle_id"))
+    if vehicle_id is None:
         flash("Select a valid unit number.")
         return redirect("/inspections")
 
-    inspector_name = request.form.get("inspector_name") or None
-    inspection_date = request.form.get("inspection_date") or date.today().isoformat()
+    performed_by, error = validate_person(request.form.get("performed_by_user_id"), "Inspector", required=True)
+    if error:
+        flash(error)
+        return redirect("/inspections")
+
+    inspection_date = request.form.get("inspection_date") or date.today()
     mileage = request.form.get("mileage") or None
     notes = request.form.get("notes") or None
 
-    cursor = db.execute(
+    report = db.execute(
         """
-        INSERT INTO inspection_reports (vehicle_id, inspector_name, inspection_date, mileage, notes)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO inspection_reports (company_id, vehicle_id, performed_by_user_id, inspection_date, mileage, notes)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
         """,
-        (vehicle_id, inspector_name, inspection_date, mileage, notes),
-    )
-    report_id = cursor.lastrowid
+        (company_id, vehicle_id, performed_by, inspection_date, mileage, notes),
+    ).fetchone()
+    report_id = report["id"]
 
     items = []
     for item_index, item in enumerate(INSPECTION_CHECKLIST):
@@ -104,14 +108,16 @@ def add_inspection_report():
         if status not in ("good", "needs_attention", "out_of_spec"):
             status = "good"
         comments = request.form.get(f"comments_{item_index}") or None
-        items.append((report_id, item, status, comments))
+        items.append((company_id, report_id, item, status, comments))
 
-    db.executemany(
-        "INSERT INTO inspection_report_items (inspection_report_id, item, status, comments) VALUES (?, ?, ?, ?)",
+    db.cursor().executemany(
+        """
+        INSERT INTO inspection_report_items (company_id, inspection_report_id, item, status, comments)
+        VALUES (%s, %s, %s, %s, %s)
+        """,
         items,
     )
     db.commit()
-    db.close()
     return redirect(f"/inspections/reports/{report_id}?new=1")
 
 
@@ -119,26 +125,31 @@ def add_inspection_report():
 @login_required
 def inspection_report_detail(report_id):
     db = get_db()
+    company_id = g.user["company_id"]
     report = db.execute(
         """
-        SELECT inspection_reports.*, vehicles.unit_number, vehicles.year, vehicles.make, vehicles.model, vehicles.vin
+        SELECT inspection_reports.*, vehicles.unit_number, vehicles.year, vehicles.make, vehicles.model, vehicles.vin,
+               performed_by.full_name AS performed_by_name
         FROM inspection_reports
         JOIN vehicles ON vehicles.id = inspection_reports.vehicle_id
-        WHERE inspection_reports.id = ? AND vehicles.user_id = ?
+        JOIN users AS performed_by ON performed_by.id = inspection_reports.performed_by_user_id
+        WHERE inspection_reports.id = %s AND inspection_reports.company_id = %s
+            AND inspection_reports.deleted_at IS NULL
         """,
-        (report_id, session["user_id"]),
+        (report_id, company_id),
     ).fetchone()
 
     if report is None:
-        db.close()
-        flash("Inspection report not found.")
-        return redirect("/inspections")
+        abort(404)
 
     items = db.execute(
-        "SELECT * FROM inspection_report_items WHERE inspection_report_id = ? ORDER BY id",
-        (report_id,),
+        """
+        SELECT * FROM inspection_report_items
+        WHERE inspection_report_id = %s AND company_id = %s
+        ORDER BY id
+        """,
+        (report_id, company_id),
     ).fetchall()
-    db.close()
 
     out_of_spec_items = [i for i in items if i["status"] == "out_of_spec"]
     work_order_prefill_description = "\n".join(
@@ -163,22 +174,18 @@ def inspection_report_detail(report_id):
 @login_required
 def add_reminder(vehicle_id):
     db = get_db()
-    owned = db.execute(
-        "SELECT id FROM vehicles WHERE id = ? AND user_id = ?",
-        (vehicle_id, session["user_id"]),
-    ).fetchone()
-    if owned is None:
-        db.close()
-        flash("Vehicle not found.")
-        return redirect("/vehicles")
+    get_vehicle_or_404(vehicle_id)
 
     reminder_type = request.form.get("reminder_type")
     due_date_str = request.form.get("due_date")
     interval = request.form.get("interval", "none")
-    mechanic_name = request.form.get("mechanic_name") or None
+
+    assigned_to, error = validate_person(request.form.get("assigned_to_user_id"), "Assigned to")
+    if error:
+        flash(error)
+        return redirect(f"/vehicles/{vehicle_id}")
 
     if not due_date_str:
-        db.close()
         flash("Due date is required.")
         return redirect(f"/vehicles/{vehicle_id}")
 
@@ -196,20 +203,18 @@ def add_reminder(vehicle_id):
                 custom_value = 0
             custom_unit = request.form.get("custom_unit")
             if custom_value < 1 or custom_unit not in ("days", "weeks", "months"):
-                db.close()
                 flash("Enter a valid custom interval.")
                 return redirect(f"/vehicles/{vehicle_id}")
         due_dates = generate_reminder_dates(due_date, interval, custom_value, custom_unit)
 
-    db.executemany(
+    db.cursor().executemany(
         """
-        INSERT INTO inspection_reminders (vehicle_id, reminder_type, due_date, status, mechanic_name)
-        VALUES (?, ?, ?, 'upcoming', ?)
+        INSERT INTO inspection_reminders (company_id, vehicle_id, reminder_type, due_date, status, assigned_to_user_id)
+        VALUES (%s, %s, %s, %s, 'upcoming', %s)
         """,
-        [(vehicle_id, reminder_type, d.isoformat(), mechanic_name) for d in due_dates],
+        [(g.user["company_id"], vehicle_id, reminder_type, d, assigned_to) for d in due_dates],
     )
     db.commit()
-    db.close()
     return redirect(f"/vehicles/{vehicle_id}")
 
 
@@ -217,27 +222,18 @@ def add_reminder(vehicle_id):
 @login_required
 def complete_reminder(reminder_id):
     db = get_db()
-    # Ensure the reminder belongs to a vehicle owned by this user before updating
     row = db.execute(
-        """
-        SELECT inspection_reminders.id, inspection_reminders.vehicle_id
-        FROM inspection_reminders
-        JOIN vehicles ON vehicles.id = inspection_reminders.vehicle_id
-        WHERE inspection_reminders.id = ? AND vehicles.user_id = ?
-        """,
-        (reminder_id, session["user_id"]),
+        "SELECT id, vehicle_id FROM inspection_reminders WHERE id = %s AND company_id = %s",
+        (reminder_id, g.user["company_id"]),
     ).fetchone()
 
     if row is None:
-        db.close()
-        flash("Reminder not found.")
-        return redirect("/")
+        abort(404)
 
     db.execute(
-        "UPDATE inspection_reminders SET status = 'completed' WHERE id = ?",
-        (reminder_id,),
+        "UPDATE inspection_reminders SET status = 'completed' WHERE id = %s AND company_id = %s",
+        (reminder_id, g.user["company_id"]),
     )
     db.commit()
     vehicle_id = row["vehicle_id"]
-    db.close()
     return redirect(request.referrer or f"/vehicles/{vehicle_id}")

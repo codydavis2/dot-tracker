@@ -29,21 +29,27 @@ than invent it.
 
 ## Current state (update this section as milestones complete)
 
-- Flat repo: everything lives at the repo root (no nested `dot-tracker/` folder).
-- App code is the `app/` package with a `create_app()` factory (`app/__init__.py`), `get_db()` in
-  `app/db.py`, and one blueprint per feature: `auth`, `dashboard`, `vehicles` (incl. maintenance
-  logs + DTCs), `inspections` (reports + reminders), `work_orders` (incl. attachments),
-  `inventory`, `audit`. Templates and static files are in `app/templates/` and `app/static/`.
-  URL paths are hard-coded in templates and redirects (no `url_for`).
-- Config comes from environment variables / `.env` (`SECRET_KEY`, `DATABASE`, `UPLOAD_DIR`,
-  `FLASK_DEBUG`, `POSTGRES_*`); see `.env.example`.
-- Still SQLite with single-user ownership (`user_id` on data tables), built from `schema.sql`.
-  Being refactored to multi-tenant Postgres with `company_id` (M1). Until that refactor lands,
-  do not add new features on top of the old `user_id` model.
-- A PostgreSQL 16 container exists (`docker-compose.yml`) but the app does not use it yet.
-- A pytest suite exists in `tests/` (characterization tests of current behavior, incl. per-user
-  ownership checks). Known bugs are recorded as `xfail(strict=True)` tests with a reason; when
-  fixing one, remove its marker.
+- Flat repo: everything lives at the repo root. App code is the `app/` package with a
+  `create_app()` factory and one blueprint per feature: `auth`, `dashboard`, `vehicles` (incl.
+  maintenance logs + DTCs), `inspections` (reports + reminders), `work_orders` (incl.
+  attachments), `inventory`, `audit`. URL paths are hard-coded in templates and redirects (no `url_for`).
+- **PostgreSQL** (docker-compose, `docker compose up -d`) via psycopg 3. Schema lives in
+  numbered SQL migrations in `migrations/` (`001_initial.sql` is the whole M1 schema), applied
+  with `flask migrate`. There is no schema.sql and no SQLite anymore.
+- **Multi-tenant** (M1 done): every customer-data table has `company_id`; every query is scoped
+  to `g.user["company_id"]`. Signup (`/register`) creates a company and its owner together.
+- **Email + password login.** The session stores only `user_id`; `auth.load_logged_in_user`
+  reloads the user into `g.user` on every request and logs out missing/deactivated users.
+- **Roles are stored but NOT enforced yet** (that's M3). Every signup is an owner; there is no
+  invite flow or user-management UI yet (users other than the owner exist only via SQL / seed).
+- Not done yet (required by rules below, planned for later milestones): CSRF protection, login
+  rate limiting, invites, role enforcement, S3, SES.
+- `flask seed-demo` creates "Demo Fleet Co" with sample users and data and prints the logins.
+- Config comes from environment variables / `.env` (`SECRET_KEY`, `DATABASE_URL`,
+  `TEST_DATABASE_URL`, `UPLOAD_DIR`, `FLASK_DEBUG`, `POSTGRES_*`); see `.env.example`.
+- Tests: pytest against a separate Postgres database (`TEST_DATABASE_URL`, wiped on every run),
+  with two-company fixtures (A and B, each with an owner and a mechanic). Known bugs are recorded
+  as `xfail(strict=True)` tests with a reason; when fixing one, remove its marker.
 
 ## NON-NEGOTIABLE RULES
 
@@ -67,13 +73,22 @@ than invent it.
   Deletion of these (when allowed) must be a soft delete unless a task explicitly says otherwise.
 
 ### 4. Signed records (compliance)
-Every inspection (any type) and every work order completion stores
-`performed_by_user_id` — the person who did the inspection/repair.
-- **Required.** The form cannot be submitted without it.
-- Rendered as a dropdown of the company's active users (not free text), pre-selected to the
-  logged-in user, and freely changeable. No confirmation step.
-- Common case: a manager filling out a work order on behalf of a mechanic.
-- The dropdown must only list active users from the same company; validate this server-side.
+Records store who did the work as user ids, never free text:
+- **Inspections** (any type) and **maintenance logs**: `performed_by_user_id` ("Inspector" /
+  "Performed by"). Always required.
+- **Work orders**: `created_by_user_id` ("Created by", always required) and
+  `performed_by_user_id` ("Completed by", required whenever the status is closed — closing,
+  editing to closed, or creating as closed; enforced by a CHECK constraint too). Reopening clears
+  `closed_at` and `performed_by_user_id`. `assigned_to_user_id` ("Assigned to") is optional.
+- Each is a dropdown of the company's active users (not free text), pre-selected to the
+  logged-in user, and freely changeable — on create and on edit (covers someone using another
+  person's device, or a manager filling out a work order on behalf of a mechanic). No
+  confirmation step.
+- There is **no hidden or automatic "entered by" field**. The dropdown value is the record.
+- Build every people dropdown with `people.people_choices()` and validate every submitted user
+  id with `people.validate_person()`: it must be an active user in the same company. When
+  editing, a user already stored on the record stays listed (marked inactive) and may be kept
+  even if since deactivated, so an edit never silently re-signs a record.
 
 ### 5. Roles and permissions
 Each user belongs to exactly one company and has exactly one role.
@@ -110,11 +125,28 @@ Each user belongs to exactly one company and has exactly one role.
 
 ## Data conventions
 
+- Database access: `get_db()` returns one psycopg connection per request, stored on `flask.g`,
+  with dict rows; it's closed (rolled back if the request raised) by a teardown handler. Routes
+  never close it; they call `db.commit()` after writes. Use `%s` placeholders and
+  `INSERT ... RETURNING id`; catch `psycopg.errors.UniqueViolation` for duplicates.
+- **Composite foreign keys**: tables that others point to have `UNIQUE (id, company_id)`, and
+  every child FK — including user references such as `(performed_by_user_id, company_id)` —
+  is `(parent_id, company_id) REFERENCES parent (id, company_id)`. The database refuses
+  cross-company links. Every `company_id` and FK column is indexed.
+- `dtc_reference` is the **one global table** (shared reference data, no `company_id`).
+- **Soft deletes**: work orders, inspection reports and maintenance logs have `deleted_at`;
+  vehicles have `archived_at`. Every query excludes soft-deleted rows (`deleted_at IS NULL`):
+  lists, detail pages (404), dashboard, audit. Archived vehicles are excluded from vehicle
+  lists and dropdowns. Work order attachments stay on disk when a work order is soft-deleted.
+- The **USDOT number is per vehicle** (`dot_details.dot_number`): one company can run trucks
+  under several DOT numbers. Don't add a company-level DOT number.
 - Companies have `company_type` ('fleet' | 'shop'). Only 'fleet' is implemented for now.
 - VINs are unique per company: `UNIQUE (company_id, vin)` — not globally unique.
 - Vehicles are identified to users by fleet `unit_number` first, then year/make/model.
 - Timestamps stored in UTC (`TIMESTAMPTZ`); dates that are calendar dates (due dates,
-  inspection dates) stored as `DATE`.
+  inspection dates) stored as `DATE`. Postgres returns `date`/`datetime` objects, not strings:
+  compare them as dates, and format in templates with the `|date` / `|datetime` filters (never
+  slice). Use `datetime.now(timezone.utc)`, never `utcnow()`. Money is `NUMERIC(10,2)` (Decimal).
 - Uploaded files: randomized stored filenames (UUID), served only through an authenticated,
   company-scoped download route — never from `static/`.
 

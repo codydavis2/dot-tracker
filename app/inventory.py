@@ -1,4 +1,4 @@
-from flask import Blueprint, flash, redirect, render_template, request, session
+from flask import Blueprint, abort, flash, g, redirect, render_template, request
 
 from .db import get_db
 from .helpers import login_required
@@ -10,6 +10,7 @@ bp = Blueprint("inventory", __name__)
 @login_required
 def inventory():
     db = get_db()
+    company_id = g.user["company_id"]
 
     if request.method == "POST":
         part_number = request.form.get("part_number") or None
@@ -21,30 +22,27 @@ def inventory():
         low_stock_threshold = request.form.get("low_stock_threshold") or None
 
         if not name:
-            db.close()
             flash("Part name is required.")
             return redirect("/inventory")
 
         db.execute(
             """
             INSERT INTO inventory
-                (user_id, part_number, name, cost, vendor, location, quantity, low_stock_threshold)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (company_id, part_number, name, cost, vendor, location, quantity, low_stock_threshold)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
-            (session["user_id"], part_number, name, cost, vendor, location, quantity, low_stock_threshold),
+            (company_id, part_number, name, cost, vendor, location, quantity, low_stock_threshold),
         )
         db.commit()
-        db.close()
         return redirect("/inventory")
 
     rows = db.execute(
-        "SELECT * FROM inventory WHERE user_id = ? ORDER BY name", (session["user_id"],)
+        "SELECT * FROM inventory WHERE company_id = %s ORDER BY name, id", (company_id,)
     ).fetchall()
-    db.close()
 
     items = [
         {
-            **dict(r),
+            **r,
             "low_stock": r["low_stock_threshold"] is not None and r["quantity"] <= r["low_stock_threshold"],
         }
         for r in rows
@@ -57,14 +55,13 @@ def inventory():
 @login_required
 def edit_inventory_item(item_id):
     db = get_db()
+    company_id = g.user["company_id"]
     owned = db.execute(
-        "SELECT id FROM inventory WHERE id = ? AND user_id = ?",
-        (item_id, session["user_id"]),
+        "SELECT id FROM inventory WHERE id = %s AND company_id = %s",
+        (item_id, company_id),
     ).fetchone()
     if owned is None:
-        db.close()
-        flash("Inventory item not found.")
-        return redirect("/inventory")
+        abort(404)
 
     part_number = request.form.get("part_number") or None
     name = request.form.get("name")
@@ -75,18 +72,16 @@ def edit_inventory_item(item_id):
     low_stock_threshold = request.form.get("low_stock_threshold") or None
 
     if not name:
-        db.close()
         flash("Part name is required.")
         return redirect("/inventory")
 
     db.execute(
         """
         UPDATE inventory
-        SET part_number = ?, name = ?, cost = ?, vendor = ?, location = ?, quantity = ?, low_stock_threshold = ?
-        WHERE id = ?
+        SET part_number = %s, name = %s, cost = %s, vendor = %s, location = %s, quantity = %s, low_stock_threshold = %s
+        WHERE id = %s AND company_id = %s
         """,
-        (part_number, name, cost, vendor, location, quantity, low_stock_threshold, item_id),
+        (part_number, name, cost, vendor, location, quantity, low_stock_threshold, item_id, company_id),
     )
     db.commit()
-    db.close()
     return redirect("/inventory")

@@ -1,12 +1,13 @@
 import io
 import os
 
-from conftest import add_vehicle, add_work_order, flashes
+from conftest import add_vehicle, add_work_order, current_user_id, flashes
 
 
 def upload(client, wo_id, vehicle_id, filename, content=b"file contents"):
     return client.post(f"/work-orders/{wo_id}/edit", content_type="multipart/form-data", data={
         "vehicle_id": str(vehicle_id),
+        "created_by_user_id": str(current_user_id(client)),
         "description": "Replace brake chamber",
         "attachments": (io.BytesIO(content), filename),
     })
@@ -16,13 +17,14 @@ def stored_path(app, wo_id, stored_filename):
     return os.path.join(app.config["UPLOAD_DIR"], str(wo_id), stored_filename)
 
 
-def test_upload_attachment(app, client, query):
+def test_upload_attachment(app, client, query, users):
     vehicle_id = add_vehicle(client)
     wo_id = add_work_order(client, query, vehicle_id)
     resp = upload(client, wo_id, vehicle_id, "invoice 1.pdf", b"%PDF-1.4 test")
     assert resp.headers["Location"] == f"/work-orders/{wo_id}"
 
     row = query("SELECT * FROM work_order_attachments")[0]
+    assert row["company_id"] == users["a_company"]
     assert row["work_order_id"] == wo_id
     assert row["original_filename"] == "invoice_1.pdf"  # run through secure_filename
     assert row["stored_filename"].endswith(".pdf")
@@ -72,7 +74,7 @@ def test_download_attachment_wrong_work_order_is_404(client, query):
     assert client.get(f"/work-orders/{other_wo_id}/attachments/{attachment_id}").status_code == 404
 
 
-def test_delete_attachment(app, client, query):
+def test_delete_attachment_is_hard_delete(app, client, query):
     vehicle_id = add_vehicle(client)
     wo_id = add_work_order(client, query, vehicle_id)
     upload(client, wo_id, vehicle_id, "notes.txt")
@@ -86,13 +88,18 @@ def test_delete_attachment(app, client, query):
     assert not os.path.exists(path)
 
 
-def test_deleting_work_order_removes_its_files(app, client, query):
+def test_soft_deleting_work_order_keeps_files_but_hides_them(app, client, query):
     vehicle_id = add_vehicle(client)
     wo_id = add_work_order(client, query, vehicle_id)
     upload(client, wo_id, vehicle_id, "notes.txt")
+    row = query("SELECT * FROM work_order_attachments")[0]
+
     client.post(f"/work-orders/{wo_id}/delete")
-    assert query("SELECT * FROM work_order_attachments") == []
-    assert not os.path.exists(os.path.join(app.config["UPLOAD_DIR"], str(wo_id)))
+
+    assert len(query("SELECT * FROM work_order_attachments")) == 1
+    assert os.path.exists(stored_path(app, wo_id, row["stored_filename"]))
+    assert client.get(f"/work-orders/{wo_id}/attachments/{row['id']}").status_code == 404
+    assert client.post(f"/work-orders/{wo_id}/attachments/{row['id']}/delete").status_code == 404
 
 
 def test_upload_too_large(app, client, query, monkeypatch):

@@ -1,7 +1,7 @@
 import calendar
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from functools import wraps
-from flask import redirect, session
+from flask import g, redirect
 
 
 def login_required(f):
@@ -11,22 +11,21 @@ def login_required(f):
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if session.get("user_id") is None:
+        # g.user is loaded (or cleared) on every request in auth.load_logged_in_user
+        if g.user is None:
             return redirect("/login")
         return f(*args, **kwargs)
     return decorated_function
 
 
-def days_until(due_date_str):
-    """Return integer days between today and a 'YYYY-MM-DD' date string.
-    Negative means overdue."""
-    due = datetime.strptime(due_date_str, "%Y-%m-%d").date()
-    return (due - date.today()).days
+def days_until(due_date):
+    """Return integer days between today and a due date. Negative means overdue."""
+    return (due_date - date.today()).days
 
 
-def reminder_status(due_date_str):
+def reminder_status(due_date):
     """Bucket a due date into upcoming / due_soon / overdue for UI coloring."""
-    delta = days_until(due_date_str)
+    delta = days_until(due_date)
     if delta < 0:
         return "overdue"       # red
     elif delta <= 14:
@@ -85,3 +84,19 @@ def usd(value):
     if value is None:
         return "—"
     return f"${value:,.2f}"
+
+
+def format_date(value):
+    """Jinja filter: show a date, or the calendar date (UTC) of a timestamp, as YYYY-MM-DD."""
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        value = value.astimezone(timezone.utc).date()
+    return value.isoformat()
+
+
+def format_datetime(value):
+    """Jinja filter: show a timestamp as 'YYYY-MM-DD HH:MM UTC'."""
+    if value is None:
+        return ""
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")

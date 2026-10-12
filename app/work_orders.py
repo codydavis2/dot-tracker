@@ -1,14 +1,15 @@
 import json
 import os
-import shutil
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
-from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, send_from_directory, session
+from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 from .db import get_db
 from .helpers import login_required
+from .people import people_choices, validate_person
+from .vehicles import find_vehicle_for_form, vehicle_choices
 
 bp = Blueprint("work_orders", __name__)
 
@@ -35,284 +36,16 @@ def save_work_order_attachments(db, work_order_id, files):
         f.save(os.path.join(wo_dir, stored))
         db.execute(
             """
-            INSERT INTO work_order_attachments (work_order_id, original_filename, stored_filename, content_type)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO work_order_attachments (company_id, work_order_id, original_filename, stored_filename, content_type)
+            VALUES (%s, %s, %s, %s, %s)
             """,
-            (work_order_id, original, stored, f.mimetype),
+            (g.user["company_id"], work_order_id, original, stored, f.mimetype),
         )
 
 
-@bp.route("/work-orders", methods=["GET", "POST"])
-@login_required
-def work_orders():
-    db = get_db()
-
-    if request.method == "POST":
-        vehicle_id = request.form.get("vehicle_id")
-        owned = db.execute(
-            "SELECT id FROM vehicles WHERE id = ? AND user_id = ?",
-            (vehicle_id, session["user_id"]),
-        ).fetchone()
-        if owned is None:
-            db.close()
-            flash("Select a valid unit number.")
-            return redirect("/work-orders")
-
-        status = request.form.get("status")
-        if status not in ("open", "closed"):
-            status = "open"
-        created_by = request.form.get("created_by") or None
-        assigned_to = request.form.get("assigned_to") or None
-        description = request.form.get("description") or None
-        notes = request.form.get("notes") or None
-        hours = request.form.get("hours") or None
-        scheduled_completion_date = request.form.get("scheduled_completion_date") or None
-
-        # Match SQLite's CURRENT_TIMESTAMP format ('YYYY-MM-DD HH:MM:SS', UTC) used by the close route
-        closed_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") if status == "closed" else None
-
-        cursor = db.execute(
-            """
-            INSERT INTO work_orders
-                (vehicle_id, status, created_by, assigned_to, description, notes, hours,
-                 scheduled_completion_date, closed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (vehicle_id, status, created_by, assigned_to, description, notes, hours,
-             scheduled_completion_date, closed_at),
-        )
-        work_order_id = cursor.lastrowid
-
-        part_names = request.form.getlist("part_name[]")
-        part_quantities = request.form.getlist("part_quantity[]")
-        parts = []
-        for name, qty_str in zip(part_names, part_quantities):
-            name = name.strip()
-            if not name:
-                continue
-            try:
-                qty = int(qty_str)
-            except ValueError:
-                qty = 1
-            parts.append((work_order_id, name, max(qty, 1)))
-
-        if parts:
-            db.executemany(
-                "INSERT INTO work_order_parts (work_order_id, part_name, quantity) VALUES (?, ?, ?)",
-                parts,
-            )
-
-        save_work_order_attachments(db, work_order_id, request.files.getlist("attachments"))
-
-        db.commit()
-        db.close()
-        return redirect("/work-orders")
-
-    vehicles = db.execute(
-        "SELECT id, unit_number, year, make, model, vin FROM vehicles WHERE user_id = ? ORDER BY unit_number",
-        (session["user_id"],),
-    ).fetchall()
-
-    work_order_rows = db.execute(
-        """
-        SELECT work_orders.*, vehicles.unit_number, vehicles.year, vehicles.make, vehicles.model, vehicles.vin
-        FROM work_orders
-        JOIN vehicles ON vehicles.id = work_orders.vehicle_id
-        WHERE vehicles.user_id = ?
-        ORDER BY work_orders.created_at DESC
-        """,
-        (session["user_id"],),
-    ).fetchall()
-    db.close()
-
-    open_work_orders = [dict(w) for w in work_order_rows if w["status"] == "open"]
-    closed_work_orders = [dict(w) for w in work_order_rows if w["status"] == "closed"]
-
-    vehicles_json = json.dumps({
-        str(v["id"]): {"year": v["year"], "make": v["make"], "model": v["model"], "vin": v["vin"]}
-        for v in vehicles
-    }).replace("</", "<\\/")
-
-    return render_template(
-        "work_orders.html",
-        vehicles=vehicles,
-        vehicles_json=vehicles_json,
-        open_work_orders=open_work_orders,
-        closed_work_orders=closed_work_orders,
-        prefill_vehicle_id=request.args.get("vehicle_id"),
-        prefill_description=request.args.get("description"),
-    )
-
-
-@bp.route("/work-orders/<int:work_order_id>")
-@login_required
-def work_order_detail(work_order_id):
-    db = get_db()
-    w = db.execute(
-        """
-        SELECT work_orders.*, vehicles.unit_number, vehicles.year, vehicles.make, vehicles.model, vehicles.vin
-        FROM work_orders
-        JOIN vehicles ON vehicles.id = work_orders.vehicle_id
-        WHERE work_orders.id = ? AND vehicles.user_id = ?
-        """,
-        (work_order_id, session["user_id"]),
-    ).fetchone()
-
-    if w is None:
-        db.close()
-        flash("Work order not found.")
-        return redirect("/work-orders")
-
-    parts = db.execute(
-        "SELECT * FROM work_order_parts WHERE work_order_id = ?", (work_order_id,)
-    ).fetchall()
-    attachments = db.execute(
-        "SELECT * FROM work_order_attachments WHERE work_order_id = ? ORDER BY uploaded_at ASC",
-        (work_order_id,),
-    ).fetchall()
-    vehicles = db.execute(
-        "SELECT id, unit_number, year, make, model, vin FROM vehicles WHERE user_id = ? ORDER BY unit_number",
-        (session["user_id"],),
-    ).fetchall()
-    db.close()
-
-    vehicles_json = json.dumps({
-        str(v["id"]): {"year": v["year"], "make": v["make"], "model": v["model"], "vin": v["vin"]}
-        for v in vehicles
-    }).replace("</", "<\\/")
-
-    parts_lines = "\n".join(
-        f"{p['part_name']}" + (f" (x{p['quantity']})" if p["quantity"] > 1 else "") for p in parts
-    )
-    work_order = {**dict(w), "parts": parts, "attachments": attachments, "parts_lines": parts_lines}
-
-    return render_template(
-        "work_order_detail.html",
-        w=work_order,
-        vehicles=vehicles,
-        vehicles_json=vehicles_json,
-    )
-
-
-@bp.route("/work-orders/<int:work_order_id>/close", methods=["POST"])
-@login_required
-def close_work_order(work_order_id):
-    db = get_db()
-    owned = db.execute(
-        """
-        SELECT work_orders.id
-        FROM work_orders
-        JOIN vehicles ON vehicles.id = work_orders.vehicle_id
-        WHERE work_orders.id = ? AND vehicles.user_id = ?
-        """,
-        (work_order_id, session["user_id"]),
-    ).fetchone()
-
-    if owned is None:
-        db.close()
-        flash("Work order not found.")
-        return redirect("/work-orders")
-
-    db.execute(
-        "UPDATE work_orders SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = ?",
-        (work_order_id,),
-    )
-    db.commit()
-    db.close()
-    return redirect(f"/work-orders/{work_order_id}")
-
-
-@bp.route("/work-orders/<int:work_order_id>/delete", methods=["POST"])
-@login_required
-def delete_work_order(work_order_id):
-    db = get_db()
-    owned = db.execute(
-        """
-        SELECT work_orders.id
-        FROM work_orders
-        JOIN vehicles ON vehicles.id = work_orders.vehicle_id
-        WHERE work_orders.id = ? AND vehicles.user_id = ?
-        """,
-        (work_order_id, session["user_id"]),
-    ).fetchone()
-
-    if owned is None:
-        db.close()
-        flash("Work order not found.")
-        return redirect("/work-orders")
-
-    db.execute("DELETE FROM work_order_parts WHERE work_order_id = ?", (work_order_id,))
-    db.execute("DELETE FROM work_order_attachments WHERE work_order_id = ?", (work_order_id,))
-    db.execute("DELETE FROM work_orders WHERE id = ?", (work_order_id,))
-    db.commit()
-    db.close()
-
-    wo_dir = os.path.join(current_app.config["UPLOAD_DIR"], str(work_order_id))
-    shutil.rmtree(wo_dir, ignore_errors=True)
-
-    flash("Work order deleted.")
-    return redirect("/work-orders")
-
-
-@bp.route("/work-orders/<int:work_order_id>/edit", methods=["POST"])
-@login_required
-def edit_work_order(work_order_id):
-    db = get_db()
-    current = db.execute(
-        """
-        SELECT work_orders.id, work_orders.status, work_orders.closed_at
-        FROM work_orders
-        JOIN vehicles ON vehicles.id = work_orders.vehicle_id
-        WHERE work_orders.id = ? AND vehicles.user_id = ?
-        """,
-        (work_order_id, session["user_id"]),
-    ).fetchone()
-
-    if current is None:
-        db.close()
-        flash("Work order not found.")
-        return redirect("/work-orders")
-
-    vehicle_id = request.form.get("vehicle_id")
-    owned_vehicle = db.execute(
-        "SELECT id FROM vehicles WHERE id = ? AND user_id = ?",
-        (vehicle_id, session["user_id"]),
-    ).fetchone()
-    if owned_vehicle is None:
-        db.close()
-        flash("Select a valid unit number.")
-        return redirect("/work-orders")
-
-    status = request.form.get("status")
-    if status not in ("open", "closed"):
-        status = current["status"]
-    created_by = request.form.get("created_by") or None
-    assigned_to = request.form.get("assigned_to") or None
-    description = request.form.get("description") or None
-    notes = request.form.get("notes") or None
-    hours = request.form.get("hours") or None
-    scheduled_completion_date = request.form.get("scheduled_completion_date") or None
-
-    if status == "closed" and current["status"] != "closed":
-        closed_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    elif status == "open" and current["status"] == "closed":
-        closed_at = None  # reopened
-    else:
-        closed_at = current["closed_at"]
-
-    db.execute(
-        """
-        UPDATE work_orders
-        SET vehicle_id = ?, status = ?, created_by = ?, assigned_to = ?,
-            description = ?, notes = ?, hours = ?, scheduled_completion_date = ?, closed_at = ?
-        WHERE id = ?
-        """,
-        (vehicle_id, status, created_by, assigned_to, description, notes, hours,
-         scheduled_completion_date, closed_at, work_order_id),
-    )
-
-    # Parts are edited as a whole list: drop the old rows and re-insert what was submitted
-    db.execute("DELETE FROM work_order_parts WHERE work_order_id = ?", (work_order_id,))
+def read_parts_form(company_id, work_order_id):
+    """Rows for work_order_parts from the submitted parts list. Blank names are skipped;
+    a missing or non-numeric quantity counts as 1."""
     part_names = request.form.getlist("part_name[]")
     part_quantities = request.form.getlist("part_quantity[]")
     parts = []
@@ -324,38 +57,315 @@ def edit_work_order(work_order_id):
             qty = int(qty_str)
         except ValueError:
             qty = 1
-        parts.append((work_order_id, name, max(qty, 1)))
+        parts.append((company_id, work_order_id, name, max(qty, 1)))
+    return parts
+
+
+def read_work_order_form(current=None):
+    """Read and validate the work order form shared by create and edit.
+
+    `current` is the existing work order when editing (None when creating).
+    Returns (values, None) when valid or (None, error_message).
+    """
+    current = current or {}
+    form = request.form
+
+    vehicle_id = find_vehicle_for_form(form.get("vehicle_id"), current.get("vehicle_id"))
+    if vehicle_id is None:
+        return None, "Select a valid unit number."
+
+    status = form.get("status")
+    if status not in ("open", "closed"):
+        status = current.get("status", "open")
+
+    created_by, error = validate_person(
+        form.get("created_by_user_id"), "Created by", required=True,
+        current_user_id=current.get("created_by_user_id"),
+    )
+    if error:
+        return None, error
+
+    assigned_to, error = validate_person(
+        form.get("assigned_to_user_id"), "Assigned to",
+        current_user_id=current.get("assigned_to_user_id"),
+    )
+    if error:
+        return None, error
+
+    # "Completed by" is only kept on closed work orders; reopening clears it.
+    performed_by = None
+    if status == "closed":
+        performed_by, error = validate_person(
+            form.get("performed_by_user_id"), "Completed by", required=True,
+            current_user_id=current.get("performed_by_user_id"),
+        )
+        if error:
+            return None, error
+
+    return {
+        "vehicle_id": vehicle_id,
+        "status": status,
+        "created_by_user_id": created_by,
+        "assigned_to_user_id": assigned_to,
+        "performed_by_user_id": performed_by,
+        "description": form.get("description") or None,
+        "notes": form.get("notes") or None,
+        "hours": form.get("hours") or None,
+        "scheduled_completion_date": form.get("scheduled_completion_date") or None,
+    }, None
+
+
+def vehicles_json_for(vehicles):
+    return json.dumps({
+        str(v["id"]): {"year": v["year"], "make": v["make"], "model": v["model"], "vin": v["vin"]}
+        for v in vehicles
+    }).replace("</", "<\\/")
+
+
+def get_work_order_or_404(work_order_id):
+    """The current company's (not deleted) work order, or a 404."""
+    work_order = get_db().execute(
+        """
+        SELECT * FROM work_orders
+        WHERE id = %s AND company_id = %s AND deleted_at IS NULL
+        """,
+        (work_order_id, g.user["company_id"]),
+    ).fetchone()
+    if work_order is None:
+        abort(404)
+    return work_order
+
+
+@bp.route("/work-orders", methods=["GET", "POST"])
+@login_required
+def work_orders():
+    db = get_db()
+    company_id = g.user["company_id"]
+
+    if request.method == "POST":
+        values, error = read_work_order_form()
+        if error:
+            flash(error)
+            return redirect("/work-orders")
+
+        closed_at = datetime.now(timezone.utc) if values["status"] == "closed" else None
+
+        work_order = db.execute(
+            """
+            INSERT INTO work_orders
+                (company_id, vehicle_id, status, created_by_user_id, assigned_to_user_id, performed_by_user_id,
+                 description, notes, hours, scheduled_completion_date, closed_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (company_id, values["vehicle_id"], values["status"], values["created_by_user_id"],
+             values["assigned_to_user_id"], values["performed_by_user_id"], values["description"],
+             values["notes"], values["hours"], values["scheduled_completion_date"], closed_at),
+        ).fetchone()
+        work_order_id = work_order["id"]
+
+        parts = read_parts_form(company_id, work_order_id)
+        if parts:
+            db.cursor().executemany(
+                "INSERT INTO work_order_parts (company_id, work_order_id, part_name, quantity) VALUES (%s, %s, %s, %s)",
+                parts,
+            )
+
+        save_work_order_attachments(db, work_order_id, request.files.getlist("attachments"))
+
+        db.commit()
+        return redirect("/work-orders")
+
+    vehicles = vehicle_choices()
+
+    work_order_rows = db.execute(
+        """
+        SELECT work_orders.*, vehicles.unit_number, vehicles.year, vehicles.make, vehicles.model, vehicles.vin
+        FROM work_orders
+        JOIN vehicles ON vehicles.id = work_orders.vehicle_id
+        WHERE work_orders.company_id = %s AND work_orders.deleted_at IS NULL
+        ORDER BY work_orders.created_at DESC, work_orders.id DESC
+        """,
+        (company_id,),
+    ).fetchall()
+
+    open_work_orders = [w for w in work_order_rows if w["status"] == "open"]
+    closed_work_orders = [w for w in work_order_rows if w["status"] == "closed"]
+
+    return render_template(
+        "work_orders.html",
+        vehicles=vehicles,
+        vehicles_json=vehicles_json_for(vehicles),
+        people=people_choices(),
+        open_work_orders=open_work_orders,
+        closed_work_orders=closed_work_orders,
+        prefill_vehicle_id=request.args.get("vehicle_id"),
+        prefill_description=request.args.get("description"),
+    )
+
+
+@bp.route("/work-orders/<int:work_order_id>")
+@login_required
+def work_order_detail(work_order_id):
+    db = get_db()
+    company_id = g.user["company_id"]
+    w = db.execute(
+        """
+        SELECT work_orders.*, vehicles.unit_number, vehicles.year, vehicles.make, vehicles.model, vehicles.vin,
+               created_by.full_name AS created_by_name,
+               assigned_to.full_name AS assigned_to_name,
+               performed_by.full_name AS performed_by_name
+        FROM work_orders
+        JOIN vehicles ON vehicles.id = work_orders.vehicle_id
+        JOIN users AS created_by ON created_by.id = work_orders.created_by_user_id
+        LEFT JOIN users AS assigned_to ON assigned_to.id = work_orders.assigned_to_user_id
+        LEFT JOIN users AS performed_by ON performed_by.id = work_orders.performed_by_user_id
+        WHERE work_orders.id = %s AND work_orders.company_id = %s AND work_orders.deleted_at IS NULL
+        """,
+        (work_order_id, company_id),
+    ).fetchone()
+
+    if w is None:
+        abort(404)
+
+    parts = db.execute(
+        "SELECT * FROM work_order_parts WHERE work_order_id = %s AND company_id = %s ORDER BY id",
+        (work_order_id, company_id),
+    ).fetchall()
+    attachments = db.execute(
+        """
+        SELECT * FROM work_order_attachments
+        WHERE work_order_id = %s AND company_id = %s
+        ORDER BY uploaded_at ASC, id ASC
+        """,
+        (work_order_id, company_id),
+    ).fetchall()
+    vehicles = vehicle_choices(w["vehicle_id"])
+
+    parts_lines = "\n".join(
+        f"{p['part_name']}" + (f" (x{p['quantity']})" if p["quantity"] > 1 else "") for p in parts
+    )
+    work_order = {**w, "parts": parts, "attachments": attachments, "parts_lines": parts_lines}
+
+    return render_template(
+        "work_order_detail.html",
+        w=work_order,
+        vehicles=vehicles,
+        vehicles_json=vehicles_json_for(vehicles),
+        people=people_choices(w["created_by_user_id"], w["assigned_to_user_id"], w["performed_by_user_id"]),
+    )
+
+
+@bp.route("/work-orders/<int:work_order_id>/close", methods=["POST"])
+@login_required
+def close_work_order(work_order_id):
+    db = get_db()
+    get_work_order_or_404(work_order_id)
+
+    performed_by, error = validate_person(request.form.get("performed_by_user_id"), "Completed by", required=True)
+    if error:
+        flash(error)
+        return redirect(f"/work-orders/{work_order_id}")
+
+    db.execute(
+        """
+        UPDATE work_orders
+        SET status = 'closed', closed_at = now(), performed_by_user_id = %s
+        WHERE id = %s AND company_id = %s
+        """,
+        (performed_by, work_order_id, g.user["company_id"]),
+    )
+    db.commit()
+    return redirect(f"/work-orders/{work_order_id}")
+
+
+@bp.route("/work-orders/<int:work_order_id>/delete", methods=["POST"])
+@login_required
+def delete_work_order(work_order_id):
+    """Soft delete: the work order is hidden everywhere but kept (with its parts and
+    attachment files) for the compliance record."""
+    db = get_db()
+    get_work_order_or_404(work_order_id)
+
+    db.execute(
+        "UPDATE work_orders SET deleted_at = now() WHERE id = %s AND company_id = %s",
+        (work_order_id, g.user["company_id"]),
+    )
+    db.commit()
+
+    flash("Work order deleted.")
+    return redirect("/work-orders")
+
+
+@bp.route("/work-orders/<int:work_order_id>/edit", methods=["POST"])
+@login_required
+def edit_work_order(work_order_id):
+    db = get_db()
+    company_id = g.user["company_id"]
+    current = get_work_order_or_404(work_order_id)
+
+    values, error = read_work_order_form(current)
+    if error:
+        flash(error)
+        return redirect(f"/work-orders/{work_order_id}")
+
+    if values["status"] == "closed" and current["status"] != "closed":
+        closed_at = datetime.now(timezone.utc)
+    elif values["status"] == "open":
+        closed_at = None  # still open, or reopened
+    else:
+        closed_at = current["closed_at"]
+
+    db.execute(
+        """
+        UPDATE work_orders
+        SET vehicle_id = %s, status = %s, created_by_user_id = %s, assigned_to_user_id = %s,
+            performed_by_user_id = %s, description = %s, notes = %s, hours = %s,
+            scheduled_completion_date = %s, closed_at = %s
+        WHERE id = %s AND company_id = %s
+        """,
+        (values["vehicle_id"], values["status"], values["created_by_user_id"], values["assigned_to_user_id"],
+         values["performed_by_user_id"], values["description"], values["notes"], values["hours"],
+         values["scheduled_completion_date"], closed_at, work_order_id, company_id),
+    )
+
+    # Parts are edited as a whole list: drop the old rows and re-insert what was submitted
+    db.execute(
+        "DELETE FROM work_order_parts WHERE work_order_id = %s AND company_id = %s", (work_order_id, company_id)
+    )
+    parts = read_parts_form(company_id, work_order_id)
     if parts:
-        db.executemany(
-            "INSERT INTO work_order_parts (work_order_id, part_name, quantity) VALUES (?, ?, ?)",
+        db.cursor().executemany(
+            "INSERT INTO work_order_parts (company_id, work_order_id, part_name, quantity) VALUES (%s, %s, %s, %s)",
             parts,
         )
 
     save_work_order_attachments(db, work_order_id, request.files.getlist("attachments"))
 
     db.commit()
-    db.close()
     return redirect(f"/work-orders/{work_order_id}")
+
+
+def get_attachment_or_404(work_order_id, attachment_id):
+    attachment = get_db().execute(
+        """
+        SELECT work_order_attachments.*
+        FROM work_order_attachments
+        JOIN work_orders ON work_orders.id = work_order_attachments.work_order_id
+        WHERE work_order_attachments.id = %s AND work_order_attachments.work_order_id = %s
+            AND work_order_attachments.company_id = %s AND work_orders.deleted_at IS NULL
+        """,
+        (attachment_id, work_order_id, g.user["company_id"]),
+    ).fetchone()
+    if attachment is None:
+        abort(404)
+    return attachment
 
 
 @bp.route("/work-orders/<int:work_order_id>/attachments/<int:attachment_id>")
 @login_required
 def download_attachment(work_order_id, attachment_id):
-    db = get_db()
-    attachment = db.execute(
-        """
-        SELECT work_order_attachments.*
-        FROM work_order_attachments
-        JOIN work_orders ON work_orders.id = work_order_attachments.work_order_id
-        JOIN vehicles ON vehicles.id = work_orders.vehicle_id
-        WHERE work_order_attachments.id = ? AND work_order_attachments.work_order_id = ? AND vehicles.user_id = ?
-        """,
-        (attachment_id, work_order_id, session["user_id"]),
-    ).fetchone()
-    db.close()
-
-    if attachment is None:
-        abort(404)
+    attachment = get_attachment_or_404(work_order_id, attachment_id)
 
     wo_dir = os.path.join(current_app.config["UPLOAD_DIR"], str(work_order_id))
     return send_from_directory(
@@ -370,29 +380,19 @@ def download_attachment(work_order_id, attachment_id):
 @login_required
 def delete_attachment(work_order_id, attachment_id):
     db = get_db()
-    attachment = db.execute(
-        """
-        SELECT work_order_attachments.*
-        FROM work_order_attachments
-        JOIN work_orders ON work_orders.id = work_order_attachments.work_order_id
-        JOIN vehicles ON vehicles.id = work_orders.vehicle_id
-        WHERE work_order_attachments.id = ? AND work_order_attachments.work_order_id = ? AND vehicles.user_id = ?
-        """,
-        (attachment_id, work_order_id, session["user_id"]),
-    ).fetchone()
+    attachment = get_attachment_or_404(work_order_id, attachment_id)
 
-    if attachment is None:
-        db.close()
-        flash("Attachment not found.")
-        return redirect("/work-orders")
+    db.execute(
+        "DELETE FROM work_order_attachments WHERE id = %s AND company_id = %s",
+        (attachment_id, g.user["company_id"]),
+    )
+    db.commit()
 
+    # Remove the file only after the row is gone, so a failed commit never leaves a dangling row
     wo_dir = os.path.join(current_app.config["UPLOAD_DIR"], str(work_order_id))
     try:
         os.remove(os.path.join(wo_dir, attachment["stored_filename"]))
     except OSError:
         pass
 
-    db.execute("DELETE FROM work_order_attachments WHERE id = ?", (attachment_id,))
-    db.commit()
-    db.close()
     return redirect(f"/work-orders/{work_order_id}")

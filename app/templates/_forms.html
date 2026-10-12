@@ -1,0 +1,12 @@
+{# People dropdown. `people` comes from people_choices() in app/people.py.
+   Required fields pass the logged-in user (or the stored value) as `selected`. #}
+{% macro person_select(name, people, selected=none, required=false, blank_label="—", id=none) %}
+<select class="form-select" name="{{ name }}"{% if id %} id="{{ id }}"{% endif %}{% if required %} required{% endif %}>
+    {% if not required or selected is none %}
+    <option value="" {% if selected is none %}selected{% endif %}{% if required %} disabled{% endif %}>{{ blank_label }}</option>
+    {% endif %}
+    {% for p in people %}
+    <option value="{{ p.id }}" {% if p.id == selected %}selected{% endif %}>{{ p.full_name }}{% if not p.is_active %} (inactive){% endif %}</option>
+    {% endfor %}
+</select>
+{% endmacro %}

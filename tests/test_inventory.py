@@ -1,12 +1,15 @@
+from decimal import Decimal
+
 from conftest import add_inventory_item, flashes
 
 
-def test_add_inventory_item(client, query):
+def test_add_inventory_item(client, query, users):
     item_id = add_inventory_item(client, query)
-    row = query("SELECT * FROM inventory WHERE id = ?", (item_id,))[0]
+    row = query("SELECT * FROM inventory WHERE id = %s", (item_id,))[0]
+    assert row["company_id"] == users["a_company"]
     assert row["part_number"] == "K-123"
     assert row["name"] == "Brake chamber"
-    assert row["cost"] == 54.99
+    assert row["cost"] == Decimal("54.99")
     assert row["quantity"] == 5
     assert row["low_stock_threshold"] == 2
 
@@ -34,9 +37,10 @@ def test_edit_inventory_item(client, query):
         "location": "Bay 3", "quantity": "8", "low_stock_threshold": "3",
     })
     assert resp.headers["Location"] == "/inventory"
-    row = query("SELECT * FROM inventory WHERE id = ?", (item_id,))[0]
+    row = query("SELECT * FROM inventory WHERE id = %s", (item_id,))[0]
     assert row["name"] == "Brake chamber 30/30"
     assert row["vendor"] == "TruckPro"
+    assert row["cost"] == Decimal("61.00")
     assert row["quantity"] == 8
 
 
@@ -44,13 +48,11 @@ def test_edit_inventory_requires_name(client, query):
     item_id = add_inventory_item(client, query)
     client.post(f"/inventory/{item_id}/edit", data={"name": ""})
     assert flashes(client) == ["Part name is required."]
-    assert query("SELECT name FROM inventory")[0][0] == "Brake chamber"
+    assert query("SELECT name FROM inventory")[0]["name"] == "Brake chamber"
 
 
-def test_edit_missing_inventory_item(client):
-    resp = client.post("/inventory/999/edit", data={"name": "x"})
-    assert resp.headers["Location"] == "/inventory"
-    assert flashes(client) == ["Inventory item not found."]
+def test_edit_missing_inventory_item_is_404(client):
+    assert client.post("/inventory/999/edit", data={"name": "x"}).status_code == 404
 
 
 def test_low_stock_flag(client, query, captured):

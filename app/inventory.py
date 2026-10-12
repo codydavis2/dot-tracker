@@ -21,7 +21,6 @@ def inventory():
         low_stock_threshold = request.form.get("low_stock_threshold") or None
 
         if not name:
-            db.close()
             flash("Part name is required.")
             return redirect("/inventory")
 
@@ -34,13 +33,11 @@ def inventory():
             (session["user_id"], part_number, name, cost, vendor, location, quantity, low_stock_threshold),
         )
         db.commit()
-        db.close()
         return redirect("/inventory")
 
     rows = db.execute(
         "SELECT * FROM inventory WHERE user_id = ? ORDER BY name", (session["user_id"],)
     ).fetchall()
-    db.close()
 
     items = [
         {
@@ -62,7 +59,6 @@ def edit_inventory_item(item_id):
         (item_id, session["user_id"]),
     ).fetchone()
     if owned is None:
-        db.close()
         flash("Inventory item not found.")
         return redirect("/inventory")
 
@@ -75,7 +71,6 @@ def edit_inventory_item(item_id):
     low_stock_threshold = request.form.get("low_stock_threshold") or None
 
     if not name:
-        db.close()
         flash("Part name is required.")
         return redirect("/inventory")
 
@@ -88,5 +83,4 @@ def edit_inventory_item(item_id):
         (part_number, name, cost, vendor, location, quantity, low_stock_threshold, item_id),
     )
     db.commit()
-    db.close()
     return redirect("/inventory")

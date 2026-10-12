@@ -53,7 +53,6 @@ def inspections():
         """,
         (session["user_id"],),
     ).fetchall()
-    db.close()
 
     flagged_by_report = {r["inspection_report_id"]: r["flagged_count"] for r in flagged_rows}
     reports = [
@@ -80,7 +79,6 @@ def add_inspection_report():
         (vehicle_id, session["user_id"]),
     ).fetchone()
     if owned is None:
-        db.close()
         flash("Select a valid unit number.")
         return redirect("/inspections")
 
@@ -111,7 +109,6 @@ def add_inspection_report():
         items,
     )
     db.commit()
-    db.close()
     return redirect(f"/inspections/reports/{report_id}?new=1")
 
 
@@ -130,7 +127,6 @@ def inspection_report_detail(report_id):
     ).fetchone()
 
     if report is None:
-        db.close()
         flash("Inspection report not found.")
         return redirect("/inspections")
 
@@ -138,7 +134,6 @@ def inspection_report_detail(report_id):
         "SELECT * FROM inspection_report_items WHERE inspection_report_id = ? ORDER BY id",
         (report_id,),
     ).fetchall()
-    db.close()
 
     out_of_spec_items = [i for i in items if i["status"] == "out_of_spec"]
     work_order_prefill_description = "\n".join(
@@ -168,7 +163,6 @@ def add_reminder(vehicle_id):
         (vehicle_id, session["user_id"]),
     ).fetchone()
     if owned is None:
-        db.close()
         flash("Vehicle not found.")
         return redirect("/vehicles")
 
@@ -178,7 +172,6 @@ def add_reminder(vehicle_id):
     mechanic_name = request.form.get("mechanic_name") or None
 
     if not due_date_str:
-        db.close()
         flash("Due date is required.")
         return redirect(f"/vehicles/{vehicle_id}")
 
@@ -196,7 +189,6 @@ def add_reminder(vehicle_id):
                 custom_value = 0
             custom_unit = request.form.get("custom_unit")
             if custom_value < 1 or custom_unit not in ("days", "weeks", "months"):
-                db.close()
                 flash("Enter a valid custom interval.")
                 return redirect(f"/vehicles/{vehicle_id}")
         due_dates = generate_reminder_dates(due_date, interval, custom_value, custom_unit)
@@ -209,7 +201,6 @@ def add_reminder(vehicle_id):
         [(vehicle_id, reminder_type, d.isoformat(), mechanic_name) for d in due_dates],
     )
     db.commit()
-    db.close()
     return redirect(f"/vehicles/{vehicle_id}")
 
 
@@ -229,7 +220,6 @@ def complete_reminder(reminder_id):
     ).fetchone()
 
     if row is None:
-        db.close()
         flash("Reminder not found.")
         return redirect("/")
 
@@ -239,5 +229,4 @@ def complete_reminder(reminder_id):
     )
     db.commit()
     vehicle_id = row["vehicle_id"]
-    db.close()
     return redirect(request.referrer or f"/vehicles/{vehicle_id}")

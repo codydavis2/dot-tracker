@@ -1,10 +1,29 @@
-import sqlite3
-
-from flask import current_app
+import psycopg
+from flask import current_app, g
+from psycopg.rows import dict_row
 
 
 def get_db():
-    conn = sqlite3.connect(current_app.config["DATABASE"])
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    """Return this request's database connection, opening it on first use.
+    Rows come back as dicts. The connection is closed automatically when the
+    request ends (see close_db), so routes never close it themselves."""
+    if "db" not in g:
+        g.db = psycopg.connect(current_app.config["DATABASE_URL"], row_factory=dict_row)
+    return g.db
+
+
+def close_db(exc=None):
+    """Close the request's connection. If the request raised, roll back first so a
+    half-finished write is never left holding locks."""
+    db = g.pop("db", None)
+    if db is None:
+        return
+    try:
+        if exc is not None:
+            db.rollback()
+    finally:
+        db.close()
+
+
+def init_app(app):
+    app.teardown_appcontext(close_db)

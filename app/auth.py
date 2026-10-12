@@ -32,8 +32,6 @@ def register():
         except sqlite3.IntegrityError:
             flash("Username already taken.")
             return redirect("/register")
-        finally:
-            db.close()
 
         return redirect("/login")
 
@@ -52,7 +50,6 @@ def login():
         row = db.execute(
             "SELECT * FROM users WHERE username = ?", (username,)
         ).fetchone()
-        db.close()
 
         if row is None or not check_password_hash(row["hash"], password):
             flash("Invalid username or password.")

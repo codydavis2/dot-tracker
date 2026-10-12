@@ -112,7 +112,6 @@ def audit():
                 {**dict(r), "checklist_items": items_by_report.get(r["id"], [])} for r in report_rows
             ]
 
-    db.close()
 
     return render_template(
         "audit.html",

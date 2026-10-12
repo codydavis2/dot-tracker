@@ -100,7 +100,6 @@ def index():
         """,
         (session["user_id"], first_day.isoformat(), last_day.isoformat()),
     ).fetchall()
-    db.close()
 
     events_by_day = {}
     for r in calendar_reminders:

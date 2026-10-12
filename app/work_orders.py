@@ -54,7 +54,6 @@ def work_orders():
             (vehicle_id, session["user_id"]),
         ).fetchone()
         if owned is None:
-            db.close()
             flash("Select a valid unit number.")
             return redirect("/work-orders")
 
@@ -105,7 +104,6 @@ def work_orders():
         save_work_order_attachments(db, work_order_id, request.files.getlist("attachments"))
 
         db.commit()
-        db.close()
         return redirect("/work-orders")
 
     vehicles = db.execute(
@@ -123,7 +121,6 @@ def work_orders():
         """,
         (session["user_id"],),
     ).fetchall()
-    db.close()
 
     open_work_orders = [dict(w) for w in work_order_rows if w["status"] == "open"]
     closed_work_orders = [dict(w) for w in work_order_rows if w["status"] == "closed"]
@@ -159,7 +156,6 @@ def work_order_detail(work_order_id):
     ).fetchone()
 
     if w is None:
-        db.close()
         flash("Work order not found.")
         return redirect("/work-orders")
 
@@ -174,7 +170,6 @@ def work_order_detail(work_order_id):
         "SELECT id, unit_number, year, make, model, vin FROM vehicles WHERE user_id = ? ORDER BY unit_number",
         (session["user_id"],),
     ).fetchall()
-    db.close()
 
     vehicles_json = json.dumps({
         str(v["id"]): {"year": v["year"], "make": v["make"], "model": v["model"], "vin": v["vin"]}
@@ -209,7 +204,6 @@ def close_work_order(work_order_id):
     ).fetchone()
 
     if owned is None:
-        db.close()
         flash("Work order not found.")
         return redirect("/work-orders")
 
@@ -218,7 +212,6 @@ def close_work_order(work_order_id):
         (work_order_id,),
     )
     db.commit()
-    db.close()
     return redirect(f"/work-orders/{work_order_id}")
 
 
@@ -237,7 +230,6 @@ def delete_work_order(work_order_id):
     ).fetchone()
 
     if owned is None:
-        db.close()
         flash("Work order not found.")
         return redirect("/work-orders")
 
@@ -245,7 +237,6 @@ def delete_work_order(work_order_id):
     db.execute("DELETE FROM work_order_attachments WHERE work_order_id = ?", (work_order_id,))
     db.execute("DELETE FROM work_orders WHERE id = ?", (work_order_id,))
     db.commit()
-    db.close()
 
     wo_dir = os.path.join(current_app.config["UPLOAD_DIR"], str(work_order_id))
     shutil.rmtree(wo_dir, ignore_errors=True)
@@ -269,7 +260,6 @@ def edit_work_order(work_order_id):
     ).fetchone()
 
     if current is None:
-        db.close()
         flash("Work order not found.")
         return redirect("/work-orders")
 
@@ -279,7 +269,6 @@ def edit_work_order(work_order_id):
         (vehicle_id, session["user_id"]),
     ).fetchone()
     if owned_vehicle is None:
-        db.close()
         flash("Select a valid unit number.")
         return redirect("/work-orders")
 
@@ -334,7 +323,6 @@ def edit_work_order(work_order_id):
     save_work_order_attachments(db, work_order_id, request.files.getlist("attachments"))
 
     db.commit()
-    db.close()
     return redirect(f"/work-orders/{work_order_id}")
 
 
@@ -352,7 +340,6 @@ def download_attachment(work_order_id, attachment_id):
         """,
         (attachment_id, work_order_id, session["user_id"]),
     ).fetchone()
-    db.close()
 
     if attachment is None:
         abort(404)
@@ -382,7 +369,6 @@ def delete_attachment(work_order_id, attachment_id):
     ).fetchone()
 
     if attachment is None:
-        db.close()
         flash("Attachment not found.")
         return redirect("/work-orders")
 
@@ -394,5 +380,4 @@ def delete_attachment(work_order_id, attachment_id):
 
     db.execute("DELETE FROM work_order_attachments WHERE id = ?", (attachment_id,))
     db.commit()
-    db.close()
     return redirect(f"/work-orders/{work_order_id}")

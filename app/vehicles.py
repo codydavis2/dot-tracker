@@ -37,7 +37,6 @@ def vehicles():
                 (session["user_id"], unit_number, make, model, year, vin, mileage, is_dot, gvwr),
             )
         except sqlite3.IntegrityError:
-            db.close()
             flash(f"Unit number \"{unit_number}\" is already in use.")
             return redirect("/vehicles")
         vehicle_id = cur.lastrowid
@@ -49,13 +48,11 @@ def vehicles():
             )
 
         db.commit()
-        db.close()
         return redirect(f"/vehicles/{vehicle_id}")
 
     rows = db.execute(
         "SELECT * FROM vehicles WHERE user_id = ?", (session["user_id"],)
     ).fetchall()
-    db.close()
     return render_template("vehicles.html", vehicles=rows)
 
 
@@ -69,7 +66,6 @@ def vehicle_detail(vehicle_id):
         (vehicle_id, session["user_id"]),
     ).fetchone()
     if vehicle is None:
-        db.close()
         flash("Vehicle not found.")
         return redirect("/vehicles")
 
@@ -88,7 +84,6 @@ def vehicle_detail(vehicle_id):
         "SELECT * FROM work_orders WHERE vehicle_id = ? ORDER BY created_at DESC",
         (vehicle_id,),
     ).fetchall()
-    db.close()
 
     reminders_with_status = [
         {**dict(r), "bucket": reminder_status(r["due_date"])} for r in reminders
@@ -114,7 +109,6 @@ def add_maintenance(vehicle_id):
         (vehicle_id, session["user_id"]),
     ).fetchone()
     if owned is None:
-        db.close()
         flash("Vehicle not found.")
         return redirect("/vehicles")
 
@@ -155,7 +149,6 @@ def add_maintenance(vehicle_id):
         )
 
     db.commit()
-    db.close()
     return redirect(f"/vehicles/{vehicle_id}")
 
 
@@ -170,7 +163,6 @@ def add_dtc(vehicle_id):
         (vehicle_id, session["user_id"]),
     ).fetchone()
     if owned is None:
-        db.close()
         flash("Vehicle not found.")
         return redirect("/vehicles")
 
@@ -190,5 +182,4 @@ def add_dtc(vehicle_id):
         (vehicle_id, code, description, date.today().isoformat()),
     )
     db.commit()
-    db.close()
     return redirect(f"/vehicles/{vehicle_id}")

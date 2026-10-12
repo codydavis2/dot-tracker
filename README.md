@@ -1,6 +1,6 @@
 # DOT Fleet Tracker
 
-A full-stack fleet maintenance and DOT compliance platform built with Flask and SQLite. It gives a small trucking or service fleet one place to track vehicles, run digital inspections, manage work orders with parts and file attachments, and keep an eye on parts inventory — with a calendar dashboard that surfaces everything due or overdue at a glance.
+A full-stack fleet maintenance and DOT compliance platform built with Flask and PostgreSQL. It gives a small trucking or service fleet one place to track vehicles, run digital inspections, manage work orders with parts and file attachments, and keep an eye on parts inventory — with a calendar dashboard that surfaces everything due or overdue at a glance.
 
 This started as a CS50 final project scaffold (auth, a `vehicles` table, and a couple of CRUD routes) and grew into a ~1,200-line application spanning eight interlocking features. I'm documenting it the way I'd want a reviewer to read it: what it does, how it's built, and — more importantly — the specific problems I ran into and the reasoning behind how I fixed them.
 
@@ -18,7 +18,7 @@ This started as a CS50 final project scaffold (auth, a `vehicles` table, and a c
 
 **Calendar dashboard** — A month-navigable calendar (built on Python's `calendar` module, not a JS library) plotting every inspection and work order due that month, several to a day, color-coded by urgency, alongside a list of open work orders with overdue ones flagged in red.
 
-Every table that holds fleet data is scoped by `user_id` and every route re-validates ownership server-side — a second account can't view, edit, or download another account's vehicles, work orders, attachments, or inventory by guessing an ID in the URL. I verified this with an explicit second-user test pass across the write and file-download routes, not just the obvious ones.
+It's multi-tenant: every table that holds fleet data carries a `company_id`, every query is scoped to the logged-in user's company, and the database itself refuses cross-company links (composite foreign keys). A user of one company gets a 404 on another company's vehicles, work orders, attachments, reports, or inventory, even by guessing an ID in the URL — verified by an automated two-company test across every view, edit, delete, and download route.
 
 ## Designing for two different users
 
@@ -26,7 +26,7 @@ The dashboard and the task screens are deliberately built for two different peop
 
 ## Stack
 
-Flask · SQLite (raw `sqlite3`, no ORM — the schema is 14 tables and I wanted to see every query) · Jinja2 · Bootstrap 5 · vanilla JS for the interactive bits (expanding parts lists, toggle-able forms, the color-coded checklist) — no frontend framework, no build step.
+Flask · PostgreSQL (raw SQL via `psycopg`, no ORM — I wanted to see every query) · Jinja2 · Bootstrap 5 · vanilla JS for the interactive bits (expanding parts lists, toggle-able forms, the color-coded checklist) — no frontend framework, no build step.
 
 ## Problems I hit, and how I reasoned through them
 
@@ -58,7 +58,7 @@ I was populating the dev database with real sample data (seeded vehicles, work o
 
 ## Setup
 
-All commands run from the repo root.
+All commands run from the repo root. You need Python 3 and Docker.
 
 ```bash
 # 1. Python environment
@@ -67,14 +67,36 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # 2. Local settings — copy the example, then edit .env
-#    (set SECRET_KEY; set FLASK_DEBUG=1 for local development)
+#    (set SECRET_KEY and POSTGRES_PASSWORD; set FLASK_DEBUG=1 for local development)
 cp .env.example .env
 
-# 3. Build the SQLite database (first time only)
-sqlite3 dot_tracker.db < schema.sql
+# 3. Start PostgreSQL 16 (runs in Docker, data kept in a named volume)
+docker compose up -d
+docker compose ps           # wait until it shows "healthy"
+
+# 4. Create / update the database tables
+flask migrate
+
+# 5. Optional: load a demo company with sample data (prints the logins)
+flask seed-demo
 ```
 
-`.env` is gitignored. Every setting is explained in `.env.example`. Relative paths for `DATABASE` and `UPLOAD_DIR` are resolved from the repo root, so it doesn't matter which folder you start the app from.
+`.env` is gitignored. Every setting is explained in `.env.example`. By default the app connects to the docker-compose database using the `POSTGRES_*` values; set `DATABASE_URL` to use a different server. `UPLOAD_DIR` is resolved from the repo root, so it doesn't matter which folder you start the app from.
+
+The database is created with the `POSTGRES_*` credentials the first time the container starts. Changing them in `.env` later has no effect until you wipe the volume with `docker compose down -v` (which deletes all data).
+
+### Database commands
+
+```bash
+flask migrate               # apply any new files in migrations/ (safe to run any time)
+flask seed-demo             # create "Demo Fleet Co" with users, vehicles, work orders, inspections, inventory
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'   # SQL prompt
+docker compose down         # stop Postgres, keep data
+```
+
+**Schema changes** go in a new numbered file, e.g. `migrations/002_add_something.sql`, then run `flask migrate`. Each file runs once, in order, inside a transaction, and is recorded in the `schema_migrations` table. Never edit a migration that has already been committed.
+
+`flask seed-demo` refuses to run if "Demo Fleet Co" already exists. The owner, mechanic and driver passwords are random and printed once. To start over, run `docker compose down -v`, then `docker compose up -d` and `flask migrate`.
 
 ## Running the app
 
@@ -84,39 +106,34 @@ flask run --host=0.0.0.0
 
 Flask finds the `create_app()` factory in the `app/` package on its own. Debug mode (auto-reload, in-browser tracebacks) is **off unless `FLASK_DEBUG=1`** is set in `.env`. `--host=0.0.0.0` is needed for port forwarding in Codespaces/containers.
 
+Sign up at `/register`. Signing up creates a company and its owner account; you log in with email and password.
+
 ## Running the tests
 
 ```bash
+docker compose up -d        # tests need the Postgres container running
 pytest
 ```
 
-Each test runs against a fresh temporary SQLite database built from `schema.sql` and a temporary upload folder. Your real `dot_tracker.db` and `uploads/` are never touched. Tests marked `xfail` are known bugs recorded on purpose: each one's `reason` explains the bug, and they flip to failing (strict) once the bug is fixed, as a reminder to remove the marker.
+Tests use a separate database, `TEST_DATABASE_URL` (by default `<POSTGRES_DB>_test` on the same server, created automatically). **Everything in it is wiped**: the schema is rebuilt from the migrations at the start of each run and every table is emptied between tests. Your app database and `uploads/` are never touched. If Postgres isn't reachable, pytest stops and tells you to run `docker compose up -d`.
 
-## PostgreSQL (not used by the app yet)
-
-The app still runs on SQLite. A PostgreSQL 16 container is ready for the upcoming multi-tenant work:
-
-```bash
-docker compose up -d        # start (credentials come from POSTGRES_* in .env)
-docker compose ps           # should show "healthy"
-docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'   # open a SQL prompt
-docker compose down         # stop, keep data
-docker compose down -v      # stop and delete the data volume
-```
-
-The database is created with the `POSTGRES_*` credentials the first time the container starts. Changing them in `.env` later has no effect until you run `docker compose down -v`.
+Most tests use two companies, A and B, each with an owner and a mechanic. The tenant-isolation tests (`tests/test_isolation.py`) check that a company-B user gets a 404 on every company-A resource. Tests marked `xfail` are known bugs recorded on purpose: each one's `reason` explains the bug, and they flip to failing (strict) once the bug is fixed, as a reminder to remove the marker.
 
 ## Project layout
 
 - `app/` — the Flask application package
-  - `__init__.py` — `create_app()` factory: loads config from the environment / `.env`, sets up sessions, registers blueprints
-  - `db.py` — `get_db()` SQLite connection helper
-  - `auth.py`, `dashboard.py`, `vehicles.py` (incl. maintenance logs + DTCs), `inspections.py` (reports + reminders), `work_orders.py` (incl. attachments), `inventory.py`, `audit.py` — one blueprint per feature. Every vehicle-, work-order-, and inventory-scoped route re-checks `WHERE user_id = ?` (or a join back to `vehicles.user_id`) before returning or mutating anything
+  - `__init__.py` — `create_app()` factory: config, sessions, CLI commands, blueprints
+  - `config.py` — settings from the environment / `.env` (database URLs, upload folder)
+  - `db.py` — `get_db()`: one Postgres connection per request (on `flask.g`), rows as dicts, closed (and rolled back on error) when the request ends
+  - `migrate.py` / `seed.py` — the `flask migrate` and `flask seed-demo` commands
+  - `auth.py` — signup, email login, and loading the logged-in user into `g.user` on every request
+  - `dashboard.py`, `vehicles.py` (incl. maintenance logs + DTCs), `inspections.py` (reports + reminders), `work_orders.py` (incl. attachments), `inventory.py`, `audit.py` — one blueprint per feature. Every query is scoped to the logged-in user's `company_id`; another company's record is a 404
+  - `people.py` — the shared "people dropdown" helpers: which users to list, and server-side validation of the submitted user
   - `constants.py` — the inspection checklist and status labels
-  - `helpers.py` — `login_required`, `reminder_status()` (buckets a due date into overdue/due_soon/upcoming), the recurring-date-generation logic, and the `usd` Jinja filter
+  - `helpers.py` — `login_required`, `reminder_status()` (buckets a due date into overdue/due_soon/upcoming), the recurring-date-generation logic, and the `usd`/`date`/`datetime` Jinja filters
   - `templates/` — Bootstrap 5 pages; interactive bits (expanding parts lists, toggle-able "new item" forms, the inspection checklist) are plain vanilla JS, no framework
   - `static/` — stylesheet
-- `schema.sql` — 14 tables: users, vehicles, dot_details, maintenance_logs + maintenance_parts, dtc_codes + dtc_reference, work_orders + work_order_parts + work_order_attachments, inspection_reminders, inspection_reports + inspection_report_items, inventory
+- `migrations/` — numbered SQL migrations; `001_initial.sql` is the full multi-tenant schema
 - `tests/` — pytest suite (see "Running the tests")
 - `docker-compose.yml` — local PostgreSQL 16 container
 - `.env.example` — every setting, with an explanation of each

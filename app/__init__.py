@@ -3,7 +3,7 @@ import os
 from flask import Flask, flash, redirect, request
 from flask_session import Session
 
-from . import audit, auth, dashboard, db, inspections, inventory, migrate, vehicles, work_orders
+from . import audit, auth, dashboard, db, inspections, inventory, migrate, seed, vehicles, work_orders
 from .config import database_url, path_setting
 from .helpers import format_date, format_datetime, usd
 
@@ -35,6 +35,7 @@ def create_app(test_config=None):
     os.makedirs(app.config["UPLOAD_DIR"], exist_ok=True)
     db.init_app(app)
     migrate.init_app(app)
+    seed.init_app(app)
 
     @app.after_request
     def after_request(response):

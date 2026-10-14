@@ -15,12 +15,16 @@
         <a class="navbar-brand" href="/">DOT <span>Fleet</span> Tracker</a>
         {% if g.user %}
         <div class="ms-auto nav-links d-flex align-items-center flex-wrap">
-            <span class="navbar-text small me-2">{{ g.user.full_name }} · {{ g.user.company_name }}</span>
+            <a href="/account" class="navbar-text small me-2 {% if request.path.startswith('/account') %}active{% endif %}" title="My Account">{{ g.user.full_name }} · {{ g.user.company_name }}</a>
             <a href="/vehicles" class="{% if request.path.startswith('/vehicles') %}active{% endif %}">Vehicles</a>
             <a href="/work-orders" class="{% if request.path.startswith('/work-orders') %}active{% endif %}">Work Orders</a>
             <a href="/inspections" class="{% if request.path.startswith('/inspections') %}active{% endif %}">Inspections</a>
             <a href="/inventory" class="{% if request.path.startswith('/inventory') %}active{% endif %}">Inventory</a>
             <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
+            {# UX only — /users is protected by @role_required("owner") #}
+            {% if g.user.role == "owner" %}
+            <a href="/users" class="{% if request.path.startswith('/users') %}active{% endif %}">Users</a>
+            {% endif %}
             <form action="/logout" method="post" class="d-inline m-0">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="logout-link">Log Out</button>

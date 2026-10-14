@@ -1,0 +1,41 @@
+{% extends "layout.html" %}
+{% block title %}My Account{% endblock %}
+{% block main %}
+<h2 class="mb-3">My Account</h2>
+<p>{{ g.user.email }} · {{ ROLE_LABELS[g.user.role] }} · {{ g.user.company_name }}</p>
+
+<div class="row g-4">
+    <div class="col-md-5">
+        <div class="card">
+            <div class="card-header">Your Name</div>
+            <div class="card-body">
+                <form action="/account/name" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <input class="form-control" name="full_name" value="{{ g.user.full_name }}" autocomplete="name" required aria-label="Full name">
+                    </div>
+                    <button class="btn btn-primary" type="submit">Save Name</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-5">
+        <div class="card">
+            <div class="card-header">Change Password</div>
+            <div class="card-body">
+                <form action="/account/password" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <input class="form-control" name="current_password" type="password" placeholder="Current password"
+                               autocomplete="current-password" required>
+                    </div>
+                    {% set placeholder = "New password" %}
+                    {% include "_password_fields.html" %}
+                    <button class="btn btn-primary" type="submit">Change Password</button>
+                    <p class="form-text mb-0 mt-2">This logs you out on every other device.</p>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

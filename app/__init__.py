@@ -5,7 +5,8 @@ from flask.helpers import get_debug_flag
 from flask_session import Session
 from flask_wtf.csrf import CSRFError
 
-from . import audit, auth, dashboard, db, inspections, inventory, invites, migrate, seed, vehicles, work_orders
+from . import (account, audit, auth, dashboard, db, inspections, inventory, invites, migrate, seed, users,
+               vehicles, work_orders)
 from .constants import ROLE_LABELS
 from .config import database_url, path_setting
 from .email import MAIL_BACKENDS
@@ -104,7 +105,8 @@ def create_app(test_config=None):
             message="Too many attempts from your network. Wait a minute and try again.",
         ), 429
 
-    for module in (auth, dashboard, vehicles, inspections, work_orders, inventory, audit, invites):
+    for module in (auth, dashboard, vehicles, inspections, work_orders, inventory, audit,
+                   users, invites, account):
         app.register_blueprint(module.bp)
 
     return app

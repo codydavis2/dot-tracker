@@ -12,6 +12,7 @@
     <div class="card-header">New Inspection Report</div>
     <div class="card-body">
         <form action="/inspections/reports" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="row mb-3">
                 <div class="col-md-3">
                     <label class="form-label">Unit Number</label>
@@ -78,6 +79,7 @@
             {% if r.assigned_to_name %}<span class="text-muted small"> — Assigned to: {{ r.assigned_to_name }}</span>{% endif %}
         </span>
         <form action="/reminders/{{ r.id }}/complete" method="post" class="m-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="btn btn-sm btn-outline-success" type="submit">Mark Done</button>
         </form>
     </li>

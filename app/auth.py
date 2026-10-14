@@ -1,8 +1,10 @@
 import psycopg
-from flask import Blueprint, flash, g, redirect, render_template, request, session
+from flask import Blueprint, current_app, flash, g, redirect, render_template, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import get_db
+from .extensions import limiter
+from .passwords import password_error
 
 bp = Blueprint("auth", __name__)
 
@@ -12,14 +14,25 @@ def normalize_email(value):
     return (value or "").strip().lower()
 
 
+def start_session(user):
+    """Log a user in: a brand-new session (new id, so a session id planted before
+    login is useless) holding only user_id and the user's current auth_version."""
+    session.clear()
+    session["user_id"] = user["id"]
+    session["auth_version"] = user["auth_version"]
+    current_app.session_interface.regenerate(session)
+
+
 @bp.before_app_request
 def load_logged_in_user():
     """Load the logged-in user into g.user on every request.
 
-    The session holds only user_id. Everything else — including company_id, which
+    The session holds only user_id and auth_version. Everything else — including company_id, which
     scopes every query — comes from this fresh database row, never from the session,
     a form, or the URL. A user who no longer exists or has been deactivated is logged
-    out immediately (login_required then sends them to /login).
+    out immediately (login_required then sends them to /login). So is a session whose
+    auth_version is stale: password changes, resets and deactivation bump the user's
+    auth_version, which logs out every session started before it.
     """
     g.user = None
     if request.endpoint == "static":
@@ -31,20 +44,21 @@ def load_logged_in_user():
     user = get_db().execute(
         """
         SELECT users.id, users.company_id, users.email, users.full_name, users.role, users.is_active,
-               companies.name AS company_name
+               users.auth_version, companies.name AS company_name
         FROM users
         JOIN companies ON companies.id = users.company_id
         WHERE users.id = %s
         """,
         (user_id,),
     ).fetchone()
-    if user is None or not user["is_active"]:
+    if user is None or not user["is_active"] or session.get("auth_version") != user["auth_version"]:
         session.clear()
         return
     g.user = user
 
 
 @bp.route("/register", methods=["GET", "POST"])
+@limiter.limit("5/minute", methods=["POST"])
 def register():
     """Signup: creates a company and its owner account together."""
     if request.method == "POST":
@@ -59,6 +73,10 @@ def register():
             return redirect("/register")
         if "@" not in email:
             flash("Enter a valid email address.")
+            return redirect("/register")
+        error = password_error(password, email)
+        if error:
+            flash(error)
             return redirect("/register")
         if password != confirmation:
             flash("Passwords do not match.")
@@ -88,17 +106,15 @@ def register():
 
 
 @bp.route("/login", methods=["GET", "POST"])
+@limiter.limit("10/minute;50/hour", methods=["POST"])
 def login():
-    session.clear()
-    g.user = None
-
     if request.method == "POST":
         email = normalize_email(request.form.get("email"))
         password = request.form.get("password") or ""
 
         db = get_db()
         user = db.execute(
-            "SELECT id, password_hash, is_active FROM users WHERE email = %s", (email,)
+            "SELECT id, password_hash, is_active, auth_version FROM users WHERE email = %s", (email,)
         ).fetchone()
 
         if user is None or not check_password_hash(user["password_hash"], password):
@@ -111,13 +127,13 @@ def login():
         db.execute("UPDATE users SET last_login_at = now() WHERE id = %s", (user["id"],))
         db.commit()
 
-        session["user_id"] = user["id"]
+        start_session(user)
         return redirect("/")
 
     return render_template("login.html")
 
 
-@bp.route("/logout")
+@bp.route("/logout", methods=["POST"])
 def logout():
     session.clear()
     return redirect("/login")

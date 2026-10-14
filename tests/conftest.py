@@ -102,6 +102,9 @@ def app(tmp_path):
         "TESTING": True,
         "DATABASE_URL": TEST_DATABASE_URL,
         "UPLOAD_DIR": str(upload_dir),
+        # Off for the general suite; tests that cover them turn them back on.
+        "WTF_CSRF_ENABLED": False,
+        "RATELIMIT_ENABLED": False,
     })
 
 

@@ -11,6 +11,7 @@
     <div class="card-header">Add a Vehicle</div>
     <div class="card-body">
         <form action="/vehicles" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="mb-2">
                 <input class="form-control" name="unit_number" placeholder="Unit number (e.g. Unit 42)">
             </div>

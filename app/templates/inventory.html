@@ -11,6 +11,7 @@
     <div class="card-header">New Inventory Item</div>
     <div class="card-body">
         <form action="/inventory" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="mb-2">
                 <input class="form-control" name="part_number" placeholder="Part number (optional)">
             </div>
@@ -60,6 +61,7 @@
         <tr class="edit-item-row d-none">
             <td colspan="8">
                 <form action="/inventory/{{ item.id }}/edit" method="post" class="row g-2 align-items-end">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="col-md-2">
                         <label class="form-label">Part #</label>
                         <input class="form-control" name="part_number" value="{{ item.part_number or '' }}">

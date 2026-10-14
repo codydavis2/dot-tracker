@@ -21,7 +21,10 @@
             <a href="/inspections" class="{% if request.path.startswith('/inspections') %}active{% endif %}">Inspections</a>
             <a href="/inventory" class="{% if request.path.startswith('/inventory') %}active{% endif %}">Inventory</a>
             <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
-            <a href="/logout" class="logout-link">Log Out</a>
+            <form action="/logout" method="post" class="d-inline m-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="logout-link">Log Out</button>
+            </form>
         </div>
         {% endif %}
     </nav>

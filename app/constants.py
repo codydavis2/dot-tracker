@@ -10,3 +10,8 @@ INSPECTION_CHECKLIST = [
     "Horn", "Mirrors", "Error Codes", "Misc.",
 ]
 INSPECTION_STATUS_LABELS = {"good": "Good", "needs_attention": "Needs Attention", "out_of_spec": "Out of Spec"}
+
+ROLE_LABELS = {"owner": "Owner", "manager": "Manager", "mechanic": "Mechanic", "driver": "Driver"}
+# Roles an owner can give through invites and the Users page. Never "owner":
+# ownership transfer is its own flow (M3).
+ASSIGNABLE_ROLES = ("manager", "mechanic", "driver")

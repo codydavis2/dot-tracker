@@ -15,24 +15,37 @@
         <a class="navbar-brand" href="/">DOT <span>Fleet</span> Tracker</a>
         {% if g.user %}
         <div class="ms-auto nav-links d-flex align-items-center flex-wrap">
-            <span class="navbar-text small me-2">{{ g.user.full_name }} · {{ g.user.company_name }}</span>
+            <a href="/account" class="navbar-text small me-2 {% if request.path.startswith('/account') %}active{% endif %}" title="My Account">{{ g.user.full_name }} · {{ g.user.company_name }}</a>
             <a href="/vehicles" class="{% if request.path.startswith('/vehicles') %}active{% endif %}">Vehicles</a>
             <a href="/work-orders" class="{% if request.path.startswith('/work-orders') %}active{% endif %}">Work Orders</a>
             <a href="/inspections" class="{% if request.path.startswith('/inspections') %}active{% endif %}">Inspections</a>
             <a href="/inventory" class="{% if request.path.startswith('/inventory') %}active{% endif %}">Inventory</a>
             <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
-            <a href="/logout" class="logout-link">Log Out</a>
+            {# UX only — /users is protected by @role_required("owner") #}
+            {% if g.user.role == "owner" %}
+            <a href="/users" class="{% if request.path.startswith('/users') %}active{% endif %}">Users</a>
+            {% endif %}
+            <form action="/logout" method="post" class="d-inline m-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="logout-link">Log Out</button>
+            </form>
         </div>
         {% endif %}
     </nav>
 
     <main class="container py-4">
-        {% with messages = get_flashed_messages() %}
-            {% if messages %}
-                {% for message in messages %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                {% if category == "dev_link" %}
+                    {# Only ever flashed when MAIL_BACKEND=console (see email.show_dev_link) #}
+                    <div class="alert alert-info no-print small">
+                        <strong>Dev mode:</strong> email printed to the terminal, not sent. Link:
+                        <a href="{{ message }}" class="text-break">{{ message }}</a>
+                    </div>
+                {% else %}
                     <div class="alert alert-warning no-print">{{ message }}</div>
-                {% endfor %}
-            {% endif %}
+                {% endif %}
+            {% endfor %}
         {% endwith %}
 
         {% block main %}{% endblock %}

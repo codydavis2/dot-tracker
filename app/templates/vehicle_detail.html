@@ -39,6 +39,7 @@
             {% endfor %}
         </ul>
         <form action="/vehicles/{{ vehicle.id }}/reminders" method="post" id="reminder-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <select class="form-select mb-2" name="reminder_type" id="reminder-type">
                 <option value="dot_annual">DOT Annual Inspection</option>
                 <option value="pre_trip">Pre-Trip Inspection</option>

@@ -108,6 +108,22 @@ Flask finds the `create_app()` factory in the `app/` package on its own. Debug m
 
 Sign up at `/register`. Signing up creates a company and its owner account; you log in with email and password.
 
+## Accounts, invites and password reset
+
+**Email (console backend).** The app doesn't send real email yet. With `MAIL_BACKEND=console` (the default) every email — password resets, invites — is **printed in the terminal where `flask run` is running**, between `===== EMAIL ... =====` and `===== END EMAIL =====` lines. In console mode only, the emailed link is also shown on screen in a blue "Dev mode" notice right after it's sent, so you can click it without hunting through the terminal. Real sending through Amazon SES (`MAIL_BACKEND=ses`) is a stub until deployment. Links are built from the address you're browsing the app at.
+
+**Inviting people.** The company owner opens **Users** in the navbar, enters an email and a role (manager, mechanic or driver) and clicks *Send Invite*. The invited person opens the link, sees their email (read-only), chooses their name and a password, and is logged in to the owner's company with that role. Invite links work for 7 days and only once. From the Users page the owner can *Resend* (new link and a fresh 7 days; the old link stops working) or *Revoke* a pending invite. An email that already has an account — in any company — can't be invited: each person belongs to one company.
+
+**Managing users.** On the same page the owner can rename users, change their role, and deactivate or reactivate them. Deactivating logs the person out immediately on every device; their name stays on everything they signed. The owner can't change their own role or deactivate themselves, and nobody can be made owner from here (ownership transfer comes later).
+
+**My Account.** Everyone can open their own account page by clicking their name in the navbar: change their name, or change their password (needs the current one; logs out every other device but keeps the current one).
+
+**Forgot password.** The login page links to *Forgot password?*. Enter an email and the page always says the same thing ("If an account exists for that email, we've sent a reset link"), so it can't be used to find out who has an account. The link works once, for 1 hour; requesting another one cancels the previous link. Deactivated accounts get no email.
+
+**Passwords** must be 8–128 characters, can't be a very common password (list in `app/common_passwords.txt`) and can't be your email. There are no "must contain a symbol" rules — a short phrase is a good password.
+
+**Security basics.** Every form carries a CSRF token, logging out is a button (POST), the session id is replaced at login, and the session cookie is `HttpOnly`, `SameSite=Lax` and — unless `FLASK_DEBUG=1` — `Secure` (HTTPS only). Login is limited to 10 attempts a minute / 50 an hour per IP address; signup, password-reset requests and invite acceptance to 5 a minute. Counters are kept in memory (`RATELIMIT_STORAGE_URI`), so they reset when the app restarts.
+
 ## Running the tests
 
 ```bash
@@ -126,14 +142,21 @@ Most tests use two companies, A and B, each with an owner and a mechanic. The te
   - `config.py` — settings from the environment / `.env` (database URLs, upload folder)
   - `db.py` — `get_db()`: one Postgres connection per request (on `flask.g`), rows as dicts, closed (and rolled back on error) when the request ends
   - `migrate.py` / `seed.py` — the `flask migrate` and `flask seed-demo` commands
-  - `auth.py` — signup, email login, and loading the logged-in user into `g.user` on every request
+  - `auth.py` — signup, email login/logout, password reset, and loading the logged-in user into `g.user` on every request (logging out stale sessions)
+  - `users.py` — the owner-only Users page: roles, rename, deactivate/reactivate
+  - `invites.py` — sending, resending and revoking invites (owner only) and accepting them
+  - `account.py` — My Account: change your own name and password
+  - `email.py` — `send_email()` and the console mail backend
+  - `passwords.py` + `common_passwords.txt` — the password policy used everywhere a password is set
+  - `tokens.py` — single-use tokens for emailed links (only their SHA-256 hash is stored)
+  - `extensions.py` — the CSRF protection and rate limiter objects
   - `dashboard.py`, `vehicles.py` (incl. maintenance logs + DTCs), `inspections.py` (reports + reminders), `work_orders.py` (incl. attachments), `inventory.py`, `audit.py` — one blueprint per feature. Every query is scoped to the logged-in user's `company_id`; another company's record is a 404
   - `people.py` — the shared "people dropdown" helpers: which users to list, and server-side validation of the submitted user
-  - `constants.py` — the inspection checklist and status labels
-  - `helpers.py` — `login_required`, `reminder_status()` (buckets a due date into overdue/due_soon/upcoming), the recurring-date-generation logic, and the `usd`/`date`/`datetime` Jinja filters
+  - `constants.py` — the inspection checklist, status labels and role names
+  - `helpers.py` — `login_required`, `role_required(...)`, `reminder_status()` (buckets a due date into overdue/due_soon/upcoming), the recurring-date-generation logic, and the `usd`/`date`/`datetime` Jinja filters
   - `templates/` — Bootstrap 5 pages; interactive bits (expanding parts lists, toggle-able "new item" forms, the inspection checklist) are plain vanilla JS, no framework
   - `static/` — stylesheet
-- `migrations/` — numbered SQL migrations; `001_initial.sql` is the full multi-tenant schema
+- `migrations/` — numbered SQL migrations; `001_initial.sql` is the full multi-tenant schema, `002_accounts_security.sql` adds `users.auth_version`, password resets and invites
 - `tests/` — pytest suite (see "Running the tests")
 - `docker-compose.yml` — local PostgreSQL 16 container
 - `.env.example` — every setting, with an explanation of each

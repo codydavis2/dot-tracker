@@ -1,0 +1,139 @@
+{% extends "layout.html" %}
+{% block title %}Users{% endblock %}
+{% block main %}
+
+<h2 class="mb-3">Users</h2>
+
+<div class="card mb-4">
+    <div class="card-header">Invite a User</div>
+    <div class="card-body">
+        <form action="/users/invites" method="post" class="row g-2 align-items-end">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-5">
+                <label class="form-label small" for="invite-email">Email</label>
+                <input class="form-control" id="invite-email" name="email" type="email" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small" for="invite-role">Role</label>
+                <select class="form-select" id="invite-role" name="role" required>
+                    {% for role in assignable_roles %}
+                    <option value="{{ role }}" {% if role == "mechanic" %}selected{% endif %}>{{ ROLE_LABELS[role] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary" type="submit">Send Invite</button>
+            </div>
+        </form>
+        <p class="form-text mb-0 mt-2">They'll get an email with a link to set up their account. The link works for 7 days.</p>
+    </div>
+</div>
+
+<h4>Active</h4>
+<table class="table align-middle">
+    <thead>
+        <tr><th>Name</th><th>Email</th><th>Role</th><th>Last login</th><th></th></tr>
+    </thead>
+    <tbody>
+        {% for u in active_users %}
+        <tr>
+            <td>
+                <form action="/users/{{ u.id }}/name" method="post" class="d-flex gap-1 m-0">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input class="form-control form-control-sm" name="full_name" value="{{ u.full_name }}" required aria-label="Full name">
+                    <button class="btn btn-sm btn-outline-secondary" type="submit">Rename</button>
+                </form>
+            </td>
+            <td>{{ u.email }}</td>
+            <td>
+                {% if u.role == "owner" %}
+                Owner{% if u.id == g.user.id %} (you){% endif %}
+                {% else %}
+                <form action="/users/{{ u.id }}/role" method="post" class="d-flex gap-1 m-0">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <select class="form-select form-select-sm" name="role" aria-label="Role">
+                        {% for role in assignable_roles %}
+                        <option value="{{ role }}" {% if role == u.role %}selected{% endif %}>{{ ROLE_LABELS[role] }}</option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn btn-sm btn-outline-secondary" type="submit">Save</button>
+                </form>
+                {% endif %}
+            </td>
+            <td>{{ u.last_login_at | datetime or "Never" }}</td>
+            <td>
+                {% if u.role != "owner" %}
+                <form action="/users/{{ u.id }}/deactivate" method="post" class="m-0"
+                      onsubmit="return confirm('Deactivate this user? They will be logged out and unable to log in.');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-outline-danger" type="submit">Deactivate</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h4 class="mt-4">Pending Invites</h4>
+{% if invites %}
+<table class="table align-middle">
+    <thead>
+        <tr><th>Email</th><th>Role</th><th>Invited by</th><th>Expires</th><th></th></tr>
+    </thead>
+    <tbody>
+        {% for i in invites %}
+        <tr>
+            <td>{{ i.email }}</td>
+            <td>{{ ROLE_LABELS[i.role] }}</td>
+            <td>{{ i.invited_by }}</td>
+            <td>
+                {{ i.expires_at | date }}
+                {% if i.is_expired %}<span class="badge bg-secondary">Expired</span>{% endif %}
+            </td>
+            <td class="d-flex gap-2">
+                <form action="/users/invites/{{ i.id }}/resend" method="post" class="m-0">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-outline-secondary" type="submit">Resend</button>
+                </form>
+                <form action="/users/invites/{{ i.id }}/revoke" method="post" class="m-0"
+                      onsubmit="return confirm('Revoke this invite? The link will stop working.');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-outline-danger" type="submit">Revoke</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="text-muted">No pending invites.</p>
+{% endif %}
+
+<h4 class="mt-4">Deactivated</h4>
+{% if inactive_users %}
+<p class="form-text">Deactivated users can't log in. Their names stay on every record they signed.</p>
+<table class="table align-middle">
+    <thead>
+        <tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr>
+    </thead>
+    <tbody>
+        {% for u in inactive_users %}
+        <tr>
+            <td>{{ u.full_name }}</td>
+            <td>{{ u.email }}</td>
+            <td>{{ ROLE_LABELS[u.role] }}</td>
+            <td>
+                <form action="/users/{{ u.id }}/reactivate" method="post" class="m-0">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-outline-secondary" type="submit">Reactivate</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="text-muted">No deactivated users.</p>
+{% endif %}
+{% endblock %}

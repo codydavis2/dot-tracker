@@ -12,6 +12,7 @@
     <button class="btn btn-outline-secondary" type="button" id="edit-wo-btn">Edit</button>
     {% if w.status == 'open' %}
     <form action="/work-orders/{{ w.id }}/close" method="post" class="m-0 d-flex gap-2 align-items-center">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label class="small text-nowrap mb-0" for="close-completed-by">Completed by</label>
         {{ forms.person_select("performed_by_user_id", people, g.user.id, required=true, id="close-completed-by") }}
         <button class="btn btn-outline-success" type="submit">Close</button>
@@ -20,6 +21,7 @@
     <button class="btn btn-outline-secondary" type="button" onclick="window.print()">Print / Save as PDF</button>
     <form action="/work-orders/{{ w.id }}/delete" method="post" class="m-0"
           onsubmit="return confirm('Delete this work order? This cannot be undone.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-outline-danger" type="submit">Delete</button>
     </form>
 </div>
@@ -72,6 +74,7 @@
                 <a href="/work-orders/{{ w.id }}/attachments/{{ a.id }}" target="_blank">{{ a.original_filename }}</a>
                 <form action="/work-orders/{{ w.id }}/attachments/{{ a.id }}/delete" method="post" class="d-inline"
                       onsubmit="return confirm('Remove this attachment?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-link btn-sm text-danger p-0 align-baseline" type="submit" title="Remove attachment">&times;</button>
                 </form>
             </div>
@@ -85,6 +88,7 @@
     <div class="card-header">Edit Work Order</div>
     <div class="card-body">
         <form action="/work-orders/{{ w.id }}/edit" method="post" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="row mb-2">
                 <div class="col-md-3">
                     <label class="form-label">Status</label>

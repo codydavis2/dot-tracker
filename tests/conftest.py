@@ -95,14 +95,49 @@ def query(db):
 
 
 @pytest.fixture
-def app(tmp_path):
+def make_app(tmp_path):
+    """Build an app with the test config plus overrides, e.g. make_app(WTF_CSRF_ENABLED=True)."""
     upload_dir = tmp_path / "uploads"
-    upload_dir.mkdir()
-    return create_app({
-        "TESTING": True,
-        "DATABASE_URL": TEST_DATABASE_URL,
-        "UPLOAD_DIR": str(upload_dir),
-    })
+    upload_dir.mkdir(exist_ok=True)
+
+    def build(**overrides):
+        config = {
+            "TESTING": True,
+            "DATABASE_URL": TEST_DATABASE_URL,
+            "UPLOAD_DIR": str(upload_dir),
+            # Off for the general suite; tests that cover them turn them back on.
+            "WTF_CSRF_ENABLED": False,
+            "RATELIMIT_ENABLED": False,
+        }
+        config.update(overrides)
+        return create_app(config)
+    return build
+
+
+@pytest.fixture
+def app(make_app):
+    return make_app()
+
+
+@pytest.fixture
+def outbox(monkeypatch):
+    """Capture outgoing email instead of printing it. Returns the list of sent messages
+    (dicts with from / to / subject / body_text)."""
+    sent = []
+    monkeypatch.setattr("app.email._deliver", sent.append)
+    return sent
+
+
+def email_link(message):
+    """The http(s) link in an email body."""
+    match = re.search(r"https?://\S+", message["body_text"])
+    assert match, f"no link in email: {message['body_text']!r}"
+    return match.group(0)
+
+
+def link_path(link):
+    """/reset-password/abc from http://localhost/reset-password/abc"""
+    return "/" + link.split("://", 1)[1].split("/", 1)[1]
 
 
 @pytest.fixture
@@ -181,6 +216,16 @@ def anon(app):
     return app.test_client()
 
 
+def force_login(client, query, user_id):
+    """Log a client in by writing its session directly (for apps where posting the
+    login form would need a CSRF token or count against the rate limit)."""
+    auth_version = query("SELECT auth_version FROM users WHERE id = %s", (user_id,))[0]["auth_version"]
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+        sess["auth_version"] = auth_version
+    return client
+
+
 def current_user_id(client):
     with client.session_transaction() as sess:
         return sess["user_id"]
@@ -240,9 +285,10 @@ def add_reminder(client, query, vehicle_id, **overrides):
 
 def flashes(client):
     """Return and clear the flash messages queued in the client's session
-    (the same thing rendering the next page would do)."""
+    (the same thing rendering the next page would do). Skips the console-mode
+    "dev_link" notices that show emailed links on screen (covered in test_email.py)."""
     with client.session_transaction() as sess:
-        return [msg for _category, msg in sess.pop("_flashes", [])]
+        return [msg for category, msg in sess.pop("_flashes", []) if category != "dev_link"]
 
 
 def select_options(html, name):

@@ -1,0 +1,18 @@
+{% extends "layout.html" %}
+{% block title %}Join {{ invite.company_name }}{% endblock %}
+{% block main %}
+<h2>Join {{ invite.company_name }}</h2>
+<p>You've been invited as a <strong>{{ ROLE_LABELS[invite.role] | lower }}</strong>. Set up your account to get started.</p>
+<form action="/invite/{{ token }}" method="post" class="col-md-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="mb-3">
+        <label class="form-label small" for="invite-email">Email (you'll log in with this)</label>
+        <input class="form-control" id="invite-email" type="email" value="{{ invite.email }}" readonly>
+    </div>
+    <div class="mb-3">
+        <input class="form-control" name="full_name" placeholder="Your full name" autocomplete="name" autofocus required>
+    </div>
+    {% include "_password_fields.html" %}
+    <button class="btn btn-primary" type="submit">Create Account</button>
+</form>
+{% endblock %}

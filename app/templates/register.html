@@ -3,6 +3,7 @@
 {% block main %}
 <h2>Create Your Company Account</h2>
 <form action="/register" method="post" class="col-md-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="mb-3">
         <input class="form-control" name="company_name" placeholder="Company name" autofocus required>
     </div>
@@ -12,12 +13,7 @@
     <div class="mb-3">
         <input class="form-control" name="email" type="email" placeholder="Email" required>
     </div>
-    <div class="mb-3">
-        <input class="form-control" name="password" type="password" placeholder="Password" required>
-    </div>
-    <div class="mb-3">
-        <input class="form-control" name="confirmation" type="password" placeholder="Confirm Password" required>
-    </div>
+    {% include "_password_fields.html" %}
     <div class="alert alert-info small">
         This creates your company and its <strong>owner</strong> account. The owner account has full
         permissions, including deleting data, so it is not recommended for day-to-day use.

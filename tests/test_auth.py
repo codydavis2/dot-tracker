@@ -5,7 +5,7 @@ from conftest import flashes, login, make_company, make_user
 
 def signup(client, email="Dana@Example.com", **overrides):
     data = {"company_name": "Acme Hauling", "full_name": "Dana Smith", "email": email,
-            "password": "s3cret", "confirmation": "s3cret"}
+            "password": "brake-chamber-9", "confirmation": "brake-chamber-9"}
     data.update(overrides)
     return client.post("/register", data=data)
 
@@ -32,7 +32,7 @@ def test_signup_creates_company_and_owner(anon, query):
     assert owner["full_name"] == "Dana Smith"
     assert owner["role"] == "owner"
     assert owner["is_active"] is True
-    assert owner["password_hash"] != "s3cret"
+    assert owner["password_hash"] != "brake-chamber-9"
 
 
 @pytest.mark.parametrize("missing", ["company_name", "full_name", "email", "password"])
@@ -63,7 +63,7 @@ def test_login_is_case_insensitive_and_records_last_login(anon, query):
     signup(anon, email="dana@example.com")
     assert query("SELECT last_login_at FROM users")[0]["last_login_at"] is None
 
-    resp = login(anon, "  DANA@Example.com", "s3cret")
+    resp = login(anon, "  DANA@Example.com", "brake-chamber-9")
     assert resp.headers["Location"] == "/"
     assert query("SELECT last_login_at FROM users")[0]["last_login_at"] is not None
 
@@ -72,9 +72,9 @@ def test_login_is_case_insensitive_and_records_last_login(anon, query):
     assert b"Dana Smith" in dashboard.data and b"Acme Hauling" in dashboard.data
 
 
-def test_session_stores_only_user_id(client, users):
+def test_session_stores_only_user_id_and_auth_version(client, users):
     with client.session_transaction() as sess:
-        assert {k for k in sess.keys() if not k.startswith("_")} == {"user_id"}
+        assert {k for k in sess.keys() if not k.startswith("_")} - {"csrf_token"} == {"user_id", "auth_version"}
         assert sess["user_id"] == users["a_owner"]
 
 
@@ -124,7 +124,9 @@ def test_deleted_user_row_is_logged_out(client, query, users):
 
 def test_logout_clears_session(client):
     assert client.get("/").status_code == 200
-    resp = client.get("/logout")
+    assert client.get("/logout").status_code == 405  # POST only
+    assert client.get("/").status_code == 200
+    resp = client.post("/logout")
     assert resp.headers["Location"] == "/login"
     assert client.get("/").headers["Location"] == "/login"
 

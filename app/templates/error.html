@@ -1,0 +1,11 @@
+{% extends "layout.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block main %}
+<h2>{{ title }}</h2>
+<p>{{ message }}</p>
+{% if reset_link %}
+<p><a href="/forgot-password">Request a new reset link</a></p>
+{% else %}
+<p><a href="/">Back to the start page</a></p>
+{% endif %}
+{% endblock %}

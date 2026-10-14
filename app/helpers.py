@@ -1,7 +1,7 @@
 import calendar
 from datetime import date, datetime, timedelta, timezone
 from functools import wraps
-from flask import g, redirect
+from flask import abort, g, redirect
 
 
 def login_required(f):
@@ -16,6 +16,22 @@ def login_required(f):
             return redirect("/login")
         return f(*args, **kwargs)
     return decorated_function
+
+
+def role_required(*roles):
+    """Decorate routes to require login AND one of the given roles, e.g.
+    @role_required("owner"). Logged out -> /login; wrong role -> 403.
+    This is the security control; hiding links in templates is only UX."""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if g.user is None:
+                return redirect("/login")
+            if g.user["role"] not in roles:
+                abort(403)
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
 
 
 def days_until(due_date):

@@ -32,6 +32,7 @@
     <div class="card-header">New Work Order</div>
     <div class="card-body">
         <form action="/work-orders" method="post" id="work-order-form" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="row mb-2">
                 <div class="col-md-3">
                     <label class="form-label">Status</label>

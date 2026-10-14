@@ -7,6 +7,7 @@ from flask_wtf.csrf import CSRFError
 
 from . import audit, auth, dashboard, db, inspections, inventory, migrate, seed, vehicles, work_orders
 from .config import database_url, path_setting
+from .email import MAIL_BACKENDS
 from .extensions import csrf, limiter
 from .helpers import format_date, format_datetime, usd
 
@@ -45,8 +46,15 @@ def create_app(test_config=None):
     app.config["UPLOAD_DIR"] = path_setting("UPLOAD_DIR", os.path.join("uploads", "work_orders"))
     app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB per request
 
+    # Email (see email.py): "console" prints messages to the terminal; "ses" is not built yet.
+    app.config["MAIL_BACKEND"] = os.environ.get("MAIL_BACKEND") or "console"
+    app.config["MAIL_FROM"] = os.environ.get("MAIL_FROM") or "Gladhand <no-reply@localhost>"
+
     if test_config:
         app.config.update(test_config)
+
+    if app.config["MAIL_BACKEND"] not in MAIL_BACKENDS:
+        raise RuntimeError(f"Unknown MAIL_BACKEND {app.config['MAIL_BACKEND']!r}; expected one of {MAIL_BACKENDS}")
 
     Session(app)
     csrf.init_app(app)

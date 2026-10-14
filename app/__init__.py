@@ -10,6 +10,7 @@ from .config import database_url, path_setting
 from .email import MAIL_BACKENDS
 from .extensions import csrf, limiter
 from .helpers import format_date, format_datetime, usd
+from .passwords import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH
 
 
 def create_app(test_config=None):
@@ -19,6 +20,8 @@ def create_app(test_config=None):
     app.jinja_env.filters["usd"] = usd
     app.jinja_env.filters["date"] = format_date
     app.jinja_env.filters["datetime"] = format_datetime
+    app.jinja_env.globals["PASSWORD_MIN_LENGTH"] = PASSWORD_MIN_LENGTH
+    app.jinja_env.globals["PASSWORD_MAX_LENGTH"] = PASSWORD_MAX_LENGTH
 
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or "dev-only-insecure-secret-key"
     app.config["DATABASE_URL"] = database_url()

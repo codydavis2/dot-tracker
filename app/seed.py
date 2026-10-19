@@ -117,8 +117,9 @@ def seed_demo(conn, today=None):
     for unit, inspector, days_ago, flagged in reports:
         report_id = insert(
             """
-            INSERT INTO inspection_reports (company_id, vehicle_id, performed_by_user_id, inspection_date, mileage)
-            VALUES (%s, %s, %s, %s, %s) RETURNING id
+            INSERT INTO inspection_reports
+                (company_id, vehicle_id, performed_by_user_id, inspection_type, inspection_date, mileage)
+            VALUES (%s, %s, %s, 'general', %s, %s) RETURNING id
             """,
             (company_id, vehicle_ids[unit], inspector, today - timedelta(days=days_ago),
              next(v[5] for v in DEMO_VEHICLES if v[0] == unit)),

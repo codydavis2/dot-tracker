@@ -94,8 +94,9 @@ def add_inspection_report():
 
     report = db.execute(
         """
-        INSERT INTO inspection_reports (company_id, vehicle_id, performed_by_user_id, inspection_date, mileage, notes)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO inspection_reports
+            (company_id, vehicle_id, performed_by_user_id, inspection_type, inspection_date, mileage, notes)
+        VALUES (%s, %s, %s, 'general', %s, %s, %s)
         RETURNING id
         """,
         (company_id, vehicle_id, performed_by, inspection_date, mileage, notes),

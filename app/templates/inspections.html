@@ -67,6 +67,7 @@
     </div>
 </div>
 
+{% if show_reminders %}
 <h4>Upcoming Inspections</h4>
 <ul class="list-group mb-4">
     {% for r in upcoming %}
@@ -87,6 +88,7 @@
     <li class="list-group-item text-muted">No upcoming inspections.</li>
     {% endfor %}
 </ul>
+{% endif %}
 
 <h4>Inspection Reports</h4>
 <ul class="list-group mb-4">

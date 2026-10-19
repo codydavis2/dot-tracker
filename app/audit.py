@@ -4,14 +4,12 @@ from flask import Blueprint, flash, g, render_template, request
 
 from .constants import INSPECTION_STATUS_LABELS
 from .db import get_db
-from .helpers import login_required
 from .vehicles import vehicle_choices
 
 bp = Blueprint("audit", __name__)
 
 
 @bp.route("/audit")
-@login_required
 def audit():
     db = get_db()
     company_id = g.user["company_id"]

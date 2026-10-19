@@ -19,11 +19,13 @@
     </form>
     {% endif %}
     <button class="btn btn-outline-secondary" type="button" onclick="window.print()">Print / Save as PDF</button>
+    {% if user_can("work_orders.delete_work_order") %}
     <form action="/work-orders/{{ w.id }}/delete" method="post" class="m-0"
           onsubmit="return confirm('Delete this work order? This cannot be undone.');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-outline-danger" type="submit">Delete</button>
     </form>
+    {% endif %}
 </div>
 
 <div class="card mb-4 no-print">
@@ -72,11 +74,13 @@
             {% for a in w.attachments %}
             <div>
                 <a href="/work-orders/{{ w.id }}/attachments/{{ a.id }}" target="_blank">{{ a.original_filename }}</a>
+                {% if user_can("work_orders.delete_attachment") %}
                 <form action="/work-orders/{{ w.id }}/attachments/{{ a.id }}/delete" method="post" class="d-inline"
                       onsubmit="return confirm('Remove this attachment?');">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-link btn-sm text-danger p-0 align-baseline" type="submit" title="Remove attachment">&times;</button>
                 </form>
+                {% endif %}
             </div>
             {% endfor %}
         </div>

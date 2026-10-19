@@ -1,4 +1,4 @@
-"""User management (owner only) and My Account."""
+"""User management (owner and managers) and My Account."""
 import pytest
 
 from conftest import PASSWORD, flashes, logged_in_client, login, make_user
@@ -38,8 +38,8 @@ def test_owner_routes_cover_every_users_route(app):
     assert normalized == listed
 
 
-@pytest.mark.parametrize("role", ["manager", "mechanic", "driver"])
-def test_non_owners_get_403(app, users, a_invite, query, outbox, role):
+@pytest.mark.parametrize("role", ["mechanic", "driver"])
+def test_mechanics_and_drivers_get_403(app, users, a_invite, query, outbox, role):
     make_user(query, users["a_company"], f"{role}2@a.example.com", f"{role.title()} Two", role)
     client = logged_in_client(app, f"{role}2@a.example.com")
     before = snapshot(query)
@@ -60,9 +60,11 @@ def test_logged_out_redirects_to_login(anon, users, a_invite):
         assert anon.post(path, data={}).headers["Location"] == "/login"
 
 
-def test_users_link_only_for_owner(client, mechanic_client):
+def test_users_link_only_for_owner_and_managers(client, manager_client, mechanic_client, driver_client):
     assert b'href="/users"' in client.get("/").data
+    assert b'href="/users"' in manager_client.get("/").data
     assert b'href="/users"' not in mechanic_client.get("/").data
+    assert b'href="/users"' not in driver_client.get("/inspections").data
 
 
 def test_users_page_lists_only_own_company(client, other_client, users, a_invite, query):
@@ -93,7 +95,8 @@ def test_nobody_can_be_made_owner(client, users, query, role):
 
 def test_owner_cannot_change_own_role(client, users, query):
     client.post(f"/users/{users['a_owner']}/role", data={"role": "manager"})
-    assert flashes(client) == ["You can't change your own role. (Transferring ownership is not available yet.)"]
+    assert flashes(client) == [
+        "You can't change your own role. (The owner can hand over the company with Transfer ownership.)"]
     assert query("SELECT role FROM users WHERE id = %s", (users["a_owner"],))[0]["role"] == "owner"
 
 

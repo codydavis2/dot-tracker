@@ -4,13 +4,12 @@ from datetime import date
 from flask import Blueprint, g, render_template, request
 
 from .db import get_db
-from .helpers import login_required, reminder_status
+from .helpers import reminder_status
 
 bp = Blueprint("dashboard", __name__)
 
 
 @bp.route("/")
-@login_required
 def index():
     db = get_db()
     company_id = g.user["company_id"]

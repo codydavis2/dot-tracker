@@ -8,6 +8,7 @@ from .db import get_db
 from .email import absolute_url, send_email, show_dev_link
 from .extensions import limiter
 from .passwords import password_error
+from .permissions import home_path
 from .tokens import hash_token, new_token
 
 bp = Blueprint("auth", __name__)
@@ -29,14 +30,13 @@ def start_session(user):
     current_app.session_interface.regenerate(session)
 
 
-@bp.before_app_request
 def load_logged_in_user():
     """Load the logged-in user into g.user on every request.
 
     The session holds only user_id and auth_version. Everything else — including company_id, which
     scopes every query — comes from this fresh database row, never from the session,
     a form, or the URL. A user who no longer exists or has been deactivated is logged
-    out immediately (login_required then sends them to /login). So is a session whose
+    out immediately (the permission check then sends them to /login). So is a session whose
     auth_version is stale: password changes, resets and deactivation bump the user's
     auth_version, which logs out every session started before it.
     """
@@ -120,7 +120,7 @@ def login():
 
         db = get_db()
         user = db.execute(
-            "SELECT id, password_hash, is_active, auth_version FROM users WHERE email = %s", (email,)
+            "SELECT id, password_hash, is_active, auth_version, role FROM users WHERE email = %s", (email,)
         ).fetchone()
 
         if user is None or not check_password_hash(user["password_hash"], password):
@@ -134,7 +134,7 @@ def login():
         db.commit()
 
         start_session(user)
-        return redirect("/")
+        return redirect(home_path(user["role"]))
 
     return render_template("login.html")
 

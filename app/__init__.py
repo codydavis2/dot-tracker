@@ -5,9 +5,9 @@ from flask.helpers import get_debug_flag
 from flask_session import Session
 from flask_wtf.csrf import CSRFError
 
-from . import (account, audit, auth, dashboard, db, inspections, inventory, invites, migrate, seed, users,
-               vehicles, work_orders)
-from .constants import ROLE_LABELS
+from . import (account, audit, auth, dashboard, db, inspections, inventory, invites, migrate, permissions, seed,
+               users, vehicles, work_orders)
+from .constants import INSPECTION_TYPE_LABELS, ROLE_LABELS
 from .config import database_url, path_setting
 from .email import MAIL_BACKENDS
 from .extensions import csrf, limiter
@@ -25,6 +25,9 @@ def create_app(test_config=None):
     app.jinja_env.globals["PASSWORD_MIN_LENGTH"] = PASSWORD_MIN_LENGTH
     app.jinja_env.globals["PASSWORD_MAX_LENGTH"] = PASSWORD_MAX_LENGTH
     app.jinja_env.globals["ROLE_LABELS"] = ROLE_LABELS
+    app.jinja_env.globals["INSPECTION_TYPE_LABELS"] = INSPECTION_TYPE_LABELS
+    app.jinja_env.globals["user_can"] = permissions.user_can
+    app.jinja_env.globals["home_path"] = permissions.home_path
 
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or "dev-only-insecure-secret-key"
     app.config["DATABASE_URL"] = database_url()
@@ -69,6 +72,11 @@ def create_app(test_config=None):
     db.init_app(app)
     migrate.init_app(app)
     seed.init_app(app)
+
+    # Order matters: load the user first, then check their role against the
+    # permission map (CSRF and rate limiting, registered above, run before both).
+    app.before_request(auth.load_logged_in_user)
+    app.before_request(permissions.check_permission)
 
     @app.after_request
     def after_request(response):

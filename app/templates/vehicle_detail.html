@@ -10,7 +10,7 @@
 </h2>
 <p class="text-muted">VIN: {{ vehicle.vin or "—" }} | Mileage: {{ vehicle.mileage }} | GVWR: {{ vehicle.gvwr or "—" }}</p>
 
-{% if vehicle.is_dot_regulated %}
+{% if shop_view and vehicle.is_dot_regulated %}
 <div class="card mb-4">
     <div class="card-header">DOT Details</div>
     <div class="card-body">
@@ -25,9 +25,24 @@
 </div>
 {% endif %}
 
+<h4>Inspection Reports</h4>
+<ul class="list-group mb-4">
+    {% for r in inspection_reports %}
+    <li class="list-group-item">
+        <a href="/inspections/reports/{{ r.id }}" class="text-decoration-none text-reset">
+            <span class="badge bg-secondary me-1">{{ INSPECTION_TYPE_LABELS[r.inspection_type] }}</span>
+            {{ r.inspection_date }} — Inspector: {{ r.performed_by_name }}
+        </a>
+    </li>
+    {% else %}
+    <li class="list-group-item text-muted">No inspection reports yet.</li>
+    {% endfor %}
+</ul>
+
+{% if shop_view %}
 <div class="row">
     <div class="col-md-6">
-        <h4>Inspections</h4>
+        <h4>Scheduled Inspections</h4>
         <ul class="list-group mb-3">
             {% for r in reminders %}
             <li class="list-group-item
@@ -137,5 +152,6 @@
         <a class="btn btn-sm btn-outline-primary" href="/work-orders">Manage Work Orders</a>
     </div>
 </div>
+{% endif %}
 
 {% endblock %}

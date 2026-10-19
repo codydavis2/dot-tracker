@@ -188,8 +188,18 @@ def login(client, email, password=PASSWORD):
 def logged_in_client(app, email):
     client = app.test_client()
     resp = login(client, email)
-    assert resp.headers["Location"] == "/", f"login failed for {email}"
+    # Drivers land on /inspections, everyone else on the dashboard
+    assert resp.headers["Location"] in ("/", "/inspections"), f"login failed for {email}"
     return client
+
+
+@pytest.fixture
+def roles(users, query):
+    """`users` plus a manager and a driver in company A (a_manager, a_driver)."""
+    ids = dict(users)
+    ids["a_manager"] = make_user(query, users["a_company"], "manager@a.example.com", "Manager A", "manager")
+    ids["a_driver"] = make_user(query, users["a_company"], "driver@a.example.com", "Driver A", "driver")
+    return ids
 
 
 @pytest.fixture
@@ -202,6 +212,18 @@ def client(app, users):
 def mechanic_client(app, users):
     """Logged in as company A's mechanic."""
     return logged_in_client(app, "mechanic@a.example.com")
+
+
+@pytest.fixture
+def manager_client(app, roles):
+    """Logged in as company A's manager."""
+    return logged_in_client(app, "manager@a.example.com")
+
+
+@pytest.fixture
+def driver_client(app, roles):
+    """Logged in as company A's driver."""
+    return logged_in_client(app, "driver@a.example.com")
 
 
 @pytest.fixture

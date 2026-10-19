@@ -1,7 +1,9 @@
-"""Invites: the owner invites someone by email + role; they open the emailed link,
-choose a name and password, and get an account in the owner's company.
+"""Invites: the owner or a manager invites someone by email + role (never owner);
+they open the emailed link, choose a name and password, and get an account in
+the inviter's company.
 
-Managing invites (send / resend / revoke) is owner-only. Accepting needs no login:
+Managing invites (send / resend / revoke) is for the owner and managers
+(permissions.py). Accepting needs no login:
 the token in the link is the proof. Tokens are stored only as hashes (tokens.py),
 expire after 7 days, and stop working once accepted, revoked, or replaced by a resend.
 """
@@ -16,8 +18,8 @@ from .constants import ASSIGNABLE_ROLES, ROLE_LABELS
 from .db import get_db
 from .email import absolute_url, send_email, show_dev_link
 from .extensions import limiter
-from .helpers import role_required
 from .passwords import password_error
+from .permissions import home_path
 from .tokens import hash_token, new_token
 
 bp = Blueprint("invites", __name__)
@@ -61,7 +63,6 @@ def _get_company_invite(invite_id):
 
 
 @bp.route("/users/invites", methods=["POST"])
-@role_required("owner")
 def create_invite():
     email = normalize_email(request.form.get("email"))
     role = request.form.get("role")
@@ -99,7 +100,6 @@ def create_invite():
 
 
 @bp.route("/users/invites/<int:invite_id>/resend", methods=["POST"])
-@role_required("owner")
 def resend_invite(invite_id):
     """New token and a fresh 7 days; the previously emailed link stops working."""
     invite = _get_company_invite(invite_id)
@@ -124,7 +124,6 @@ def resend_invite(invite_id):
 
 
 @bp.route("/users/invites/<int:invite_id>/revoke", methods=["POST"])
-@role_required("owner")
 def revoke_invite(invite_id):
     invite = _get_company_invite(invite_id)
     if invite["accepted_at"] is not None or invite["revoked_at"] is not None:
@@ -227,6 +226,6 @@ def accept_invite(token):
 
         start_session(user)
         flash(f"Welcome to {invite['company_name']}!")
-        return redirect("/")
+        return redirect(home_path(invite["role"]))
 
     return render_template("accept_invite.html", invite=invite, token=token)

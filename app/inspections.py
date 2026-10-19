@@ -4,19 +4,23 @@ from flask import Blueprint, abort, flash, g, redirect, render_template, request
 
 from .constants import INSPECTION_CHECKLIST, INSPECTION_STATUS_LABELS
 from .db import get_db
-from .helpers import generate_reminder_dates, login_required, reminder_status
+from .helpers import generate_reminder_dates, reminder_status
 from .people import people_choices, validate_person
+from .permissions import can
 from .vehicles import find_vehicle_for_form, get_vehicle_or_404, vehicle_choices
 
 bp = Blueprint("inspections", __name__)
 
 
 @bp.route("/inspections")
-@login_required
 def inspections():
     db = get_db()
     company_id = g.user["company_id"]
-    rows = db.execute(
+
+    # Scheduled-inspection reminders are shop data: only for roles that can work
+    # them (not drivers), and not even queried otherwise.
+    show_reminders = can(g.user["role"], "inspections.complete_reminder")
+    rows = [] if not show_reminders else db.execute(
         """
         SELECT inspection_reminders.*, vehicles.unit_number, vehicles.make, vehicles.model, vehicles.year,
                assigned_to.full_name AS assigned_to_name
@@ -66,6 +70,7 @@ def inspections():
     return render_template(
         "inspections.html",
         upcoming=upcoming,
+        show_reminders=show_reminders,
         vehicles=vehicle_choices(),
         people=people_choices(),
         reports=reports,
@@ -74,7 +79,6 @@ def inspections():
 
 
 @bp.route("/inspections/reports", methods=["POST"])
-@login_required
 def add_inspection_report():
     db = get_db()
     company_id = g.user["company_id"]
@@ -123,7 +127,6 @@ def add_inspection_report():
 
 
 @bp.route("/inspections/reports/<int:report_id>")
-@login_required
 def inspection_report_detail(report_id):
     db = get_db()
     company_id = g.user["company_id"]
@@ -165,14 +168,14 @@ def inspection_report_detail(report_id):
         status_labels=INSPECTION_STATUS_LABELS,
         out_of_spec_items=out_of_spec_items,
         work_order_prefill_description=work_order_prefill_description,
-        prompt_work_order=(request.args.get("new") == "1" and bool(out_of_spec_items)),
+        prompt_work_order=(request.args.get("new") == "1" and bool(out_of_spec_items)
+                           and can(g.user["role"], "work_orders.create_work_order")),
     )
 
 
 # ---------- INSPECTION REMINDERS ----------
 
 @bp.route("/vehicles/<int:vehicle_id>/reminders", methods=["POST"])
-@login_required
 def add_reminder(vehicle_id):
     db = get_db()
     get_vehicle_or_404(vehicle_id)
@@ -220,7 +223,6 @@ def add_reminder(vehicle_id):
 
 
 @bp.route("/reminders/<int:reminder_id>/complete", methods=["POST"])
-@login_required
 def complete_reminder(reminder_id):
     db = get_db()
     row = db.execute(

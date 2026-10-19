@@ -3,20 +3,17 @@ from flask import Blueprint, current_app, flash, g, redirect, render_template, r
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import get_db
-from .helpers import login_required
 from .passwords import password_error
 
 bp = Blueprint("account", __name__)
 
 
 @bp.route("/account")
-@login_required
 def index():
     return render_template("account.html")
 
 
 @bp.route("/account/name", methods=["POST"])
-@login_required
 def change_name():
     full_name = (request.form.get("full_name") or "").strip()
     if not full_name:
@@ -34,7 +31,6 @@ def change_name():
 
 
 @bp.route("/account/password", methods=["POST"])
-@login_required
 def change_password():
     """Requires the current password. Logs out every OTHER session (auth_version bump)
     but keeps this one logged in."""

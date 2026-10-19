@@ -49,6 +49,9 @@ PERMISSIONS = {
     "account.change_name": ANY_LOGGED_IN,
     "account.change_password": ANY_LOGGED_IN,
 
+    # Ownership transfer
+    "ownership.transfer_ownership": OWNER,
+
     # User and invite management
     "users.index": OFFICE,
     "users.change_role": OFFICE,

@@ -5,8 +5,8 @@ from flask.helpers import get_debug_flag
 from flask_session import Session
 from flask_wtf.csrf import CSRFError
 
-from . import (account, audit, auth, dashboard, db, inspections, inventory, invites, migrate, permissions, seed,
-               users, vehicles, work_orders)
+from . import (account, audit, auth, dashboard, db, inspections, inventory, invites, migrate, ownership,
+               permissions, seed, users, vehicles, work_orders)
 from .constants import INSPECTION_TYPE_LABELS, ROLE_LABELS
 from .config import database_url, path_setting
 from .email import MAIL_BACKENDS
@@ -114,7 +114,7 @@ def create_app(test_config=None):
         ), 429
 
     for module in (auth, dashboard, vehicles, inspections, work_orders, inventory, audit,
-                   users, invites, account):
+                   users, invites, ownership, account):
         app.register_blueprint(module.bp)
 
     return app

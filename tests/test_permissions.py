@@ -33,6 +33,7 @@ EXPECTED = {
     "account.index": ANY_LOGGED_IN,
     "account.change_name": ANY_LOGGED_IN,
     "account.change_password": ANY_LOGGED_IN,
+    "ownership.transfer_ownership": {O},
     "users.index": OFFICE,
     "users.change_role": OFFICE,
     "users.rename": OFFICE,

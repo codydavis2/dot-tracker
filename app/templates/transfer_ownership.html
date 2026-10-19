@@ -1,0 +1,45 @@
+{% extends "layout.html" %}
+{% block title %}Transfer Ownership{% endblock %}
+{% block main %}
+
+<a href="/users" class="btn btn-sm btn-outline-secondary mb-3">&larr; Back to Users</a>
+
+<h2 class="mb-3">Transfer Ownership</h2>
+
+<div class="row">
+    <div class="col-md-7">
+        <p>
+            Hand {{ g.user.company_name }} over to another active user. They become the owner, with full
+            permissions (including managing users and deleting data). <strong>Your account becomes a manager
+            account right away</strong>, and only the new owner can transfer ownership again.
+        </p>
+
+        {% if candidates %}
+        <div class="card">
+            <div class="card-body">
+                <form action="/transfer-ownership" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label" for="new-owner">New owner</label>
+                        <select class="form-select" id="new-owner" name="user_id" required>
+                            <option value="" disabled selected>Choose a user&hellip;</option>
+                            {% for u in candidates %}
+                            <option value="{{ u.id }}">{{ u.full_name }} — {{ u.email }} ({{ ROLE_LABELS[u.role] }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="transfer-password">Your current password</label>
+                        <input class="form-control" id="transfer-password" name="password" type="password"
+                               autocomplete="current-password" required>
+                    </div>
+                    <button class="btn btn-danger" type="submit">Transfer Ownership</button>
+                </form>
+            </div>
+        </div>
+        {% else %}
+        <p class="text-muted">There's no other active user to transfer to. Invite someone from the Users page first.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

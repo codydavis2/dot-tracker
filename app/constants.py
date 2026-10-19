@@ -44,6 +44,6 @@ INSPECTION_TYPE_LABELS = {"pre_trip": "Pre-trip", "monthly": "Monthly", "annual"
 INSPECTION_STATUS_LABELS = {"good": "Good", "needs_attention": "Needs Attention", "out_of_spec": "Out of Spec"}
 
 ROLE_LABELS = {"owner": "Owner", "manager": "Manager", "mechanic": "Mechanic", "driver": "Driver"}
-# Roles an owner can give through invites and the Users page. Never "owner":
-# ownership transfer is its own flow (M3).
+# Roles that can be given through invites and the Users page. Never "owner":
+# ownership transfer is its own flow (ownership.py).
 ASSIGNABLE_ROLES = ("manager", "mechanic", "driver")

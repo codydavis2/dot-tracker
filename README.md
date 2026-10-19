@@ -8,7 +8,7 @@ This started as a CS50 final project scaffold (auth, a `vehicles` table, and a c
 
 **Fleet management** — Vehicles are tracked by fleet unit number (not just year/make/model), with VIN, mileage, GVWR, and a DOT-regulated flag that gates a separate `dot_details` record (DOT #, CDL class, last roadside result).
 
-**Digital inspections** — A configurable, flat inspection checklist (engine, suspension, brakes, electrical, etc.) filled out per vehicle. Each item gets a three-state color rating (green/yellow/red) via Bootstrap toggle buttons plus a free-text comment. If any item comes back red, the app prompts the inspector to spin up a work order pre-filled with the flagged items and comments — closing the loop between "found a problem" and "assigned it to get fixed" without re-typing anything.
+**Digital inspections** — Four inspection types (pre-trip, monthly, annual, general), each with a server-chosen checklist, filled out per vehicle. Each item gets a three-state color rating (green/yellow/red) via Bootstrap toggle buttons plus a free-text comment. If any item comes back red, the app prompts the inspector to spin up a work order pre-filled with the flagged items and comments — closing the loop between "found a problem" and "assigned it to get fixed" without re-typing anything — and until someone does, the inspection stays as a red alert on the dashboard.
 
 **Work orders** — Full lifecycle: open → closed, with reassignment between vehicles, labor hours, a parts list, and file attachments (photos, invoices, quotes) stored and served through an authenticated download route rather than as static files. Every work order has its own detail page; edits, closes, and deletes redirect back to wherever the action was taken from instead of bouncing you to a fixed page.
 
@@ -89,14 +89,14 @@ The database is created with the `POSTGRES_*` credentials the first time the con
 
 ```bash
 flask migrate               # apply any new files in migrations/ (safe to run any time)
-flask seed-demo             # create "Demo Fleet Co" with users, vehicles, work orders, inspections, inventory
+flask seed-demo             # create "Demo Fleet Co" with one user per role, vehicles, work orders, inspections, inventory
 docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'   # SQL prompt
 docker compose down         # stop Postgres, keep data
 ```
 
 **Schema changes** go in a new numbered file, e.g. `migrations/002_add_something.sql`, then run `flask migrate`. Each file runs once, in order, inside a transaction, and is recorded in the `schema_migrations` table. Never edit a migration that has already been committed.
 
-`flask seed-demo` refuses to run if "Demo Fleet Co" already exists. The owner, mechanic and driver passwords are random and printed once. To start over, run `docker compose down -v`, then `docker compose up -d` and `flask migrate`.
+`flask seed-demo` refuses to run if "Demo Fleet Co" already exists. The owner, manager, mechanic and driver passwords are random and printed once. To start over, run `docker compose down -v`, then `docker compose up -d` and `flask migrate`.
 
 ## Running the app
 
@@ -112,9 +112,9 @@ Sign up at `/register`. Signing up creates a company and its owner account; you 
 
 **Email (console backend).** The app doesn't send real email yet. With `MAIL_BACKEND=console` (the default) every email — password resets, invites — is **printed in the terminal where `flask run` is running**, between `===== EMAIL ... =====` and `===== END EMAIL =====` lines. In console mode only, the emailed link is also shown on screen in a blue "Dev mode" notice right after it's sent, so you can click it without hunting through the terminal. Real sending through Amazon SES (`MAIL_BACKEND=ses`) is a stub until deployment. Links are built from the address you're browsing the app at.
 
-**Inviting people.** The company owner opens **Users** in the navbar, enters an email and a role (manager, mechanic or driver) and clicks *Send Invite*. The invited person opens the link, sees their email (read-only), chooses their name and a password, and is logged in to the owner's company with that role. Invite links work for 7 days and only once. From the Users page the owner can *Resend* (new link and a fresh 7 days; the old link stops working) or *Revoke* a pending invite. An email that already has an account — in any company — can't be invited: each person belongs to one company.
+**Inviting people.** The owner or a manager opens **Users** in the navbar, enters an email and a role (manager, mechanic or driver) and clicks *Send Invite*. The invited person opens the link, sees their email (read-only), chooses their name and a password, and is logged in to the company with that role. Invite links work for 7 days and only once. From the Users page the owner or a manager can *Resend* (new link and a fresh 7 days; the old link stops working) or *Revoke* a pending invite. An email that already has an account — in any company — can't be invited: each person belongs to one company.
 
-**Managing users.** On the same page the owner can rename users, change their role, and deactivate or reactivate them. Deactivating logs the person out immediately on every device; their name stays on everything they signed. The owner can't change their own role or deactivate themselves, and nobody can be made owner from here (ownership transfer comes later).
+**Managing users.** On the same page the owner and managers can rename users, change their role, and deactivate or reactivate them. Deactivating logs the person out immediately on every device; their name stays on everything they signed. Nobody can change their own role or deactivate themselves, a manager can't touch the owner's account at all, and nobody can be made owner from here — that's what *Transfer Ownership* is for (below).
 
 **My Account.** Everyone can open their own account page by clicking their name in the navbar: change their name, or change their password (needs the current one; logs out every other device but keeps the current one).
 
@@ -123,6 +123,41 @@ Sign up at `/register`. Signing up creates a company and its owner account; you 
 **Passwords** must be 8–128 characters, can't be a very common password (list in `app/common_passwords.txt`) and can't be your email. There are no "must contain a symbol" rules — a short phrase is a good password.
 
 **Security basics.** Every form carries a CSRF token, logging out is a button (POST), the session id is replaced at login, and the session cookie is `HttpOnly`, `SameSite=Lax` and — unless `FLASK_DEBUG=1` — `Secure` (HTTPS only). Login is limited to 10 attempts a minute / 50 an hour per IP address; signup, password-reset requests and invite acceptance to 5 a minute. Counters are kept in memory (`RATELIMIT_STORAGE_URI`), so they reset when the app restarts.
+
+## Roles and permissions
+
+Every user has one role. What each role can use:
+
+| | Owner | Manager | Mechanic | Driver |
+|---|:-:|:-:|:-:|:-:|
+| Transfer ownership | ✅ | | | |
+| Users and invites; add vehicles; delete work orders and attachments | ✅ | ✅ | | |
+| Dashboard (incl. red-item alerts), audit, work orders, attachments, inventory, maintenance logs, DTCs, reminders; monthly / annual / general inspections; mark an inspection reviewed | ✅ | ✅ | ✅ | |
+| Vehicle list and detail, inspections list and reports, pre-trip inspections | ✅ | ✅ | ✅ | ✅ |
+
+Everyone can use My Account and log out. **Drivers** land on the Inspections page after logging in, can only submit pre-trips, and see a reduced vehicle page (the vehicle and its inspections — no work orders, maintenance, DTCs, reminders or DOT details). The navbar shows only the links your role can use.
+
+All of this lives in one place, `app/permissions.py`: a map from every route to the roles allowed. A check before every request enforces it, and a route that isn't in the map is refused for everyone — so forgetting to add a new page fails closed, and a test (`tests/test_permissions.py`) fails until it's added. Templates ask the same map (`user_can(...)`) to decide which buttons to show.
+
+## Inspections and red-item alerts
+
+**Types.** Each inspection report is one of:
+
+- **Pre-trip** — the driver's walkaround, 14 items: service brakes (incl. trailer brake connections), parking brake, air lines & gladhands, steering, lights & reflectors, tires, wheels & rims, hubs, horn, windshield & wipers, mirrors, coupling devices, fluid levels & leaks, emergency equipment. Anyone can submit one.
+- **Monthly**, **Annual**, **General** — the full 24-item shop checklist. Owners, managers and mechanics.
+
+The server picks the checklist from the type; the form can't add, remove or rename items. The type shows on the inspection list, report page, printed sheet and audit report, and the audit report can filter by type.
+
+**Red-item alerts.** An inspection *needs attention* when it has at least one item marked Out of Spec, no work order linked to it, and hasn't been marked reviewed. Those show as red alerts at the top of the dashboard — unit, type, date, inspector and the Out of Spec items — for everyone who can create work orders (not drivers). Each alert has two buttons:
+
+- **Create work order** opens the work order form pre-filled from the Out of Spec items and linked to the inspection. Saving it clears the alert. If that work order is later deleted, the alert comes back.
+- **Mark reviewed** clears the alert without a work order (e.g. the driver fixed a wiper blade on the road). It records only *when* — not who or why — on purpose: it's a "seen it" switch, not a sign-off.
+
+The inspection's own page shows the work orders made from it, "Reviewed on …" once reviewed, and the same two buttons while it still needs attention.
+
+## Ownership transfer
+
+Each company has exactly one owner. The owner can hand the company to another active user from **Users → Transfer Ownership**: choose the person and confirm with your own password. The new owner gets owner permissions and the old owner becomes a manager, immediately and in one step; both get an email.
 
 ## Running the tests
 
@@ -133,7 +168,7 @@ pytest
 
 Tests use a separate database, `TEST_DATABASE_URL` (by default `<POSTGRES_DB>_test` on the same server, created automatically). **Everything in it is wiped**: the schema is rebuilt from the migrations at the start of each run and every table is emptied between tests. Your app database and `uploads/` are never touched. If Postgres isn't reachable, pytest stops and tells you to run `docker compose up -d`.
 
-Most tests use two companies, A and B, each with an owner and a mechanic. The tenant-isolation tests (`tests/test_isolation.py`) check that a company-B user gets a 404 on every company-A resource. Tests marked `xfail` are known bugs recorded on purpose: each one's `reason` explains the bug, and they flip to failing (strict) once the bug is fixed, as a reminder to remove the marker.
+Most tests use two companies, A and B, each with an owner and a mechanic (the `roles` fixture adds a manager and a driver to A). The permission tests (`tests/test_permissions.py`) try every route as every role and check the result against the permission map. The tenant-isolation tests (`tests/test_isolation.py`) check that a company-B user gets a 404 on every company-A resource. Tests marked `xfail` are known bugs recorded on purpose: each one's `reason` explains the bug, and they flip to failing (strict) once the bug is fixed, as a reminder to remove the marker.
 
 ## Project layout
 
@@ -143,20 +178,22 @@ Most tests use two companies, A and B, each with an owner and a mechanic. The te
   - `db.py` — `get_db()`: one Postgres connection per request (on `flask.g`), rows as dicts, closed (and rolled back on error) when the request ends
   - `migrate.py` / `seed.py` — the `flask migrate` and `flask seed-demo` commands
   - `auth.py` — signup, email login/logout, password reset, and loading the logged-in user into `g.user` on every request (logging out stale sessions)
-  - `users.py` — the owner-only Users page: roles, rename, deactivate/reactivate
-  - `invites.py` — sending, resending and revoking invites (owner only) and accepting them
+  - `permissions.py` — the permission map (every route → roles allowed), the check that enforces it before every request, `can()` / `user_can()` for role-aware UI, and which roles may submit each inspection type
+  - `users.py` — the Users page (owner and managers): roles, rename, deactivate/reactivate
+  - `invites.py` — sending, resending and revoking invites (owner and managers) and accepting them
+  - `ownership.py` — owner-only ownership transfer
   - `account.py` — My Account: change your own name and password
   - `email.py` — `send_email()` and the console mail backend
   - `passwords.py` + `common_passwords.txt` — the password policy used everywhere a password is set
   - `tokens.py` — single-use tokens for emailed links (only their SHA-256 hash is stored)
   - `extensions.py` — the CSRF protection and rate limiter objects
-  - `dashboard.py`, `vehicles.py` (incl. maintenance logs + DTCs), `inspections.py` (reports + reminders), `work_orders.py` (incl. attachments), `inventory.py`, `audit.py` — one blueprint per feature. Every query is scoped to the logged-in user's `company_id`; another company's record is a 404
+  - `dashboard.py`, `vehicles.py` (incl. maintenance logs + DTCs), `inspections.py` (reports, red-item alerts + reminders), `work_orders.py` (incl. attachments), `inventory.py`, `audit.py` — one blueprint per feature. Every query is scoped to the logged-in user's `company_id`; another company's record is a 404
   - `people.py` — the shared "people dropdown" helpers: which users to list, and server-side validation of the submitted user
-  - `constants.py` — the inspection checklist, status labels and role names
-  - `helpers.py` — `login_required`, `role_required(...)`, `reminder_status()` (buckets a due date into overdue/due_soon/upcoming), the recurring-date-generation logic, and the `usd`/`date`/`datetime` Jinja filters
+  - `constants.py` — the inspection types and checklists, status labels and role names
+  - `helpers.py` — `reminder_status()` (buckets a due date into overdue/due_soon/upcoming), the recurring-date-generation logic, and the `usd`/`date`/`datetime` Jinja filters
   - `templates/` — Bootstrap 5 pages; interactive bits (expanding parts lists, toggle-able "new item" forms, the inspection checklist) are plain vanilla JS, no framework
   - `static/` — stylesheet
-- `migrations/` — numbered SQL migrations; `001_initial.sql` is the full multi-tenant schema, `002_accounts_security.sql` adds `users.auth_version`, password resets and invites
+- `migrations/` — numbered SQL migrations; `001_initial.sql` is the full multi-tenant schema, `002_accounts_security.sql` adds `users.auth_version`, password resets and invites, `003_roles_inspections.sql` adds inspection types, `reviewed_at` and the work order → inspection link
 - `tests/` — pytest suite (see "Running the tests")
 - `docker-compose.yml` — local PostgreSQL 16 container
 - `.env.example` — every setting, with an explanation of each
@@ -164,6 +201,5 @@ Most tests use two companies, A and B, each with an owner and a mechanic. The te
 ## What I'd build next
 
 - Automated tests (everything above was verified by hand with the Flask test client during development — formalizing that into a real `pytest` suite is the next thing I'd reach for)
-- Role-based access (the `users.role` column already exists — `owner`/`mechanic`/`driver` — but nothing branches on it yet)
 - The original `maintenance_logs` and `dtc_codes` tables and routes are still in the schema and backend but deliberately dropped from the UI once work orders and inspection reports became the primary way to record vehicle history — reviving or fully retiring them is an open decision, not an oversight
 - Push/email notifications for overdue DOT inspections instead of relying on someone opening the dashboard

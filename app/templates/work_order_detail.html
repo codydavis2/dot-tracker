@@ -37,6 +37,7 @@
         {% endif %}
         <strong class="ms-2">{% if w.unit_number %}Unit {{ w.unit_number }}{% else %}(no unit #){% endif %} — {{ w.year }} {{ w.make }} {{ w.model }}</strong>
         {% if w.vin %}<div class="text-muted small mt-1">VIN: {{ w.vin }}</div>{% endif %}
+        {% if w.inspection_report_id %}<div class="text-muted small">From <a href="/inspections/reports/{{ w.inspection_report_id }}">inspection report</a></div>{% endif %}
         <div class="text-muted small">Opened {{ w.created_at|datetime }}{% if w.closed_at %} | Closed {{ w.closed_at|datetime }}{% endif %}</div>
         {% if w.scheduled_completion_date %}<div class="text-muted small">Scheduled completion: {{ w.scheduled_completion_date }}</div>{% endif %}
 

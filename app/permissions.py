@@ -75,6 +75,7 @@ PERMISSIONS = {
     "inspections.inspection_report_detail": EVERYONE,
     "inspections.add_reminder": SHOP,
     "inspections.complete_reminder": SHOP,
+    "inspections.mark_reviewed": WORK_ORDER_CREATORS,
 
     # Work orders and attachments
     "work_orders.work_orders": SHOP,

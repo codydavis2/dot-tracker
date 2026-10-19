@@ -33,6 +33,14 @@
     <div class="card-body">
         <form action="/work-orders" method="post" id="work-order-form" enctype="multipart/form-data">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if from_report %}
+            <input type="hidden" name="inspection_report_id" value="{{ from_report.id }}">
+            <div class="alert alert-info py-2">
+                From the {{ INSPECTION_TYPE_LABELS[from_report.inspection_type]|lower }} inspection on
+                {{ from_report.inspection_date }} (<a href="/inspections/reports/{{ from_report.id }}">view report</a>).
+                Saving links this work order to it and clears its red-item alert.
+            </div>
+            {% endif %}
             <div class="row mb-2">
                 <div class="col-md-3">
                     <label class="form-label">Status</label>

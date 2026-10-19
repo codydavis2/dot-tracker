@@ -53,6 +53,7 @@ EXPECTED = {
     "inspections.inspection_report_detail": EVERYONE,
     "inspections.add_reminder": SHOP,
     "inspections.complete_reminder": SHOP,
+    "inspections.mark_reviewed": SHOP,
     "work_orders.work_orders": SHOP,
     "work_orders.create_work_order": SHOP,
     "work_orders.work_order_detail": SHOP,

@@ -154,9 +154,9 @@ def test_view_new_report_prompts_for_work_order(client, query, captured, users):
     assert ctx["report"]["performed_by_name"] == "Mechanic A"
     assert len(ctx["items"]) == len(CHECKLIST)
     assert [i["item"] for i in ctx["out_of_spec_items"]] == ["Brakes"]
-    assert ctx["work_order_prefill_description"] == "Brakes: Pushrod out of adjustment"
     assert ctx["prompt_work_order"] is True
     assert b"Create a work order" in resp.data
+    assert f"/work-orders?inspection_report_id={report_id}".encode() in resp.data
     assert b"Mechanic A" in resp.data
 
 

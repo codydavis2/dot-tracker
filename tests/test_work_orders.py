@@ -103,14 +103,17 @@ def test_work_orders_list(client, query, captured):
     vehicle_id = add_vehicle(client)
     open_id = add_work_order(client, query, vehicle_id)
     closed_id = add_work_order(client, query, vehicle_id, status="closed")
+    # Free-form prefill parameters are gone: the form is only pre-filled from an
+    # inspection report (?inspection_report_id=, see test_alerts.py)
     resp = client.get("/work-orders?vehicle_id=5&description=Brakes")
     assert resp.status_code == 200
     name, ctx = captured[-1]
     assert name == "work_orders.html"
     assert [w["id"] for w in ctx["open_work_orders"]] == [open_id]
     assert [w["id"] for w in ctx["closed_work_orders"]] == [closed_id]
-    assert ctx["prefill_vehicle_id"] == "5"
-    assert ctx["prefill_description"] == "Brakes"
+    assert ctx["from_report"] is None
+    assert ctx["prefill_vehicle_id"] is None
+    assert ctx["prefill_description"] is None
 
 
 def test_view_work_order(client, query, captured, users):

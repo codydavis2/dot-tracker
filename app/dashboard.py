@@ -5,6 +5,8 @@ from flask import Blueprint, g, render_template, request
 
 from .db import get_db
 from .helpers import reminder_status
+from .inspections import needs_attention_reports
+from .permissions import can
 
 bp = Blueprint("dashboard", __name__)
 
@@ -13,6 +15,9 @@ bp = Blueprint("dashboard", __name__)
 def index():
     db = get_db()
     company_id = g.user["company_id"]
+
+    # Red-item alerts go to the roles that can act on them by creating a work order
+    alerts = needs_attention_reports() if can(g.user["role"], "work_orders.create_work_order") else []
 
     vehicles_all = db.execute(
         "SELECT * FROM vehicles WHERE company_id = %s AND archived_at IS NULL ORDER BY id",
@@ -136,6 +141,7 @@ def index():
 
     return render_template(
         "dashboard.html",
+        alerts=alerts,
         vehicles=vehicles,
         more_vehicles=more_vehicles,
         dot_warnings=dot_warnings,

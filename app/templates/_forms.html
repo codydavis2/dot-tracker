@@ -1,3 +1,15 @@
+{# "Mark reviewed" on a red-item alert (dashboard and report page). The confirm()
+   text is fixed — never put record data into this JavaScript. `next` is
+   "dashboard" or "report": where to go back to afterward. #}
+{% macro mark_reviewed_button(report_id, next) %}
+<form action="/inspections/reports/{{ report_id }}/review" method="post" class="d-inline m-0"
+      onsubmit="return confirm('Mark this inspection reviewed? The alert will clear without a work order. Only the date and time are recorded.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    <button class="btn btn-sm btn-outline-dark" type="submit">Mark reviewed</button>
+</form>
+{% endmacro %}
+
 {# People dropdown. `people` comes from people_choices() in app/people.py.
    Required fields pass the logged-in user (or the stored value) as `selected`. #}
 {% macro person_select(name, people, selected=none, required=false, blank_label="—", id=none) %}

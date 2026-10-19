@@ -2,14 +2,29 @@ from datetime import date
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request
 
-from .constants import INSPECTION_CHECKLIST, INSPECTION_STATUS_LABELS
+from .constants import CHECKLISTS, INSPECTION_STATUS_LABELS, INSPECTION_TYPE_LABELS
 from .db import get_db
 from .helpers import generate_reminder_dates, reminder_status
 from .people import people_choices, validate_person
-from .permissions import can
+from .permissions import can, can_submit_inspection
 from .vehicles import find_vehicle_for_form, get_vehicle_or_404, vehicle_choices
 
 bp = Blueprint("inspections", __name__)
+
+
+def checklist_groups(inspection_types):
+    """The new-report form shows one checklist per distinct list, and the type
+    selector switches between them: [(group_key, [types], [items]), ...]."""
+    groups = []
+    for inspection_type in inspection_types:
+        items = CHECKLISTS[inspection_type]
+        for key, types, group_items in groups:
+            if group_items is items:
+                types.append(inspection_type)
+                break
+        else:
+            groups.append((inspection_type, [inspection_type], items))
+    return groups
 
 
 @bp.route("/inspections")
@@ -67,6 +82,9 @@ def inspections():
         for r in report_rows
     ]
 
+    # Only the types this role may submit (drivers: pre-trip only)
+    inspection_types = [t for t in INSPECTION_TYPE_LABELS if can_submit_inspection(g.user["role"], t)]
+
     return render_template(
         "inspections.html",
         upcoming=upcoming,
@@ -74,7 +92,8 @@ def inspections():
         vehicles=vehicle_choices(),
         people=people_choices(),
         reports=reports,
-        checklist=INSPECTION_CHECKLIST,
+        inspection_types=inspection_types,
+        checklist_groups=checklist_groups(inspection_types),
     )
 
 
@@ -82,6 +101,14 @@ def inspections():
 def add_inspection_report():
     db = get_db()
     company_id = g.user["company_id"]
+
+    inspection_type = request.form.get("inspection_type")
+    if inspection_type not in CHECKLISTS:
+        flash("Choose an inspection type.")
+        return redirect("/inspections")
+    if not can_submit_inspection(g.user["role"], inspection_type):
+        abort(403)
+
     vehicle_id = find_vehicle_for_form(request.form.get("vehicle_id"))
     if vehicle_id is None:
         flash("Select a valid unit number.")
@@ -100,15 +127,17 @@ def add_inspection_report():
         """
         INSERT INTO inspection_reports
             (company_id, vehicle_id, performed_by_user_id, inspection_type, inspection_date, mileage, notes)
-        VALUES (%s, %s, %s, 'general', %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
-        (company_id, vehicle_id, performed_by, inspection_date, mileage, notes),
+        (company_id, vehicle_id, performed_by, inspection_type, inspection_date, mileage, notes),
     ).fetchone()
     report_id = report["id"]
 
+    # The checklist comes from the type, never from the form: only status_<n> and
+    # comments_<n> are read, for the items this type has. Anything else is ignored.
     items = []
-    for item_index, item in enumerate(INSPECTION_CHECKLIST):
+    for item_index, item in enumerate(CHECKLISTS[inspection_type]):
         status = request.form.get(f"status_{item_index}", "good")
         if status not in ("good", "needs_attention", "out_of_spec"):
             status = "good"

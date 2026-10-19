@@ -51,6 +51,17 @@
                 </div>
             </div>
 
+            <div class="mb-3">
+                <label class="form-label d-block">Inspection Types <span class="text-muted small">(none ticked = all)</span></label>
+                {% for t, label in INSPECTION_TYPE_LABELS.items() %}
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" name="inspection_type" value="{{ t }}" id="inspType-{{ t }}"
+                           {% if t in inspection_types %}checked{% endif %}>
+                    <label class="form-check-label" for="inspType-{{ t }}">{{ label }}</label>
+                </div>
+                {% endfor %}
+            </div>
+
             <button class="btn btn-primary" type="submit">Generate Report</button>
         </form>
     </div>
@@ -64,6 +75,7 @@
             <p class="text-muted mb-0">
                 Asset: <strong>{% if selected_vehicle %}{% if selected_vehicle.unit_number %}Unit {{ selected_vehicle.unit_number }}{% else %}(no unit #){% endif %} — {{ selected_vehicle.year }} {{ selected_vehicle.make }} {{ selected_vehicle.model }}{% if selected_vehicle.vin %} — VIN {{ selected_vehicle.vin }}{% endif %}{% else %}All Assets{% endif %}</strong><br>
                 Period: <strong>{{ start_date }}</strong> through <strong>{{ end_date }}</strong><br>
+                {% if 'inspections' in doc_types %}Inspection types: <strong>{% if inspection_types %}{% for t in inspection_types %}{{ INSPECTION_TYPE_LABELS[t] }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}All{% endif %}</strong><br>{% endif %}
                 Generated: <span class="mono">{{ generated_at }}</span>
             </p>
         </div>
@@ -104,7 +116,7 @@
         {% for r in inspection_reports %}
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span>{% if r.unit_number %}Unit {{ r.unit_number }}{% else %}(no unit #){% endif %} — {{ r.year }} {{ r.make }} {{ r.model }} — {{ r.inspection_date }}</span>
+                <span>{{ INSPECTION_TYPE_LABELS[r.inspection_type] }} — {% if r.unit_number %}Unit {{ r.unit_number }}{% else %}(no unit #){% endif %} — {{ r.year }} {{ r.make }} {{ r.model }} — {{ r.inspection_date }}</span>
                 <span class="text-muted" style="text-transform: none; letter-spacing: 0;">
                     Inspector: {{ r.performed_by_name }}
                     {% if r.mileage %} · Mileage: <span class="mono">{{ r.mileage }}</span>{% endif %}

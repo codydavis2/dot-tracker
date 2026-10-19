@@ -77,3 +77,22 @@ def test_audit_invalid_dates(client, captured):
     assert resp.status_code == 200
     assert captured[-1][1]["ran_report"] is False
     assert flashes(client) == [] and b"Enter valid From and To dates." in resp.data
+
+
+def test_audit_filters_by_inspection_type(client, query, captured):
+    vehicle_id = add_vehicle(client)
+    pre_trip = add_inspection_report(client, query, vehicle_id, inspection_type="pre_trip", inspection_date="2026-03-02")
+    annual = add_inspection_report(client, query, vehicle_id, inspection_type="annual", inspection_date="2026-03-03")
+    general = add_inspection_report(client, query, vehicle_id, inspection_type="general", inspection_date="2026-03-04")
+
+    client.get("/audit?start_date=2026-03-01&end_date=2026-03-31&doc_type=inspections")
+    assert [r["id"] for r in captured[-1][1]["inspection_reports"]] == [pre_trip, annual, general]
+
+    resp = client.get("/audit?start_date=2026-03-01&end_date=2026-03-31&doc_type=inspections"
+                      "&inspection_type=annual&inspection_type=pre_trip&inspection_type=bogus")
+    _, ctx = captured[-1]
+    assert ctx["inspection_types"] == ["annual", "pre_trip"]
+    assert [r["id"] for r in ctx["inspection_reports"]] == [pre_trip, annual]
+    html = resp.get_data(as_text=True)
+    assert "Inspection types: <strong>Annual, Pre-trip</strong>" in html
+    assert "Pre-trip Vehicle Inspection Report" in html and "General Vehicle Inspection Report" not in html

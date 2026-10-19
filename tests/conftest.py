@@ -281,7 +281,7 @@ def add_work_order(client, query, vehicle_id, **overrides):
 
 def add_inspection_report(client, query, vehicle_id, **overrides):
     data = {"vehicle_id": str(vehicle_id), "performed_by_user_id": str(current_user_id(client)),
-            "inspection_date": "2026-03-15", "mileage": "351000", "notes": ""}
+            "inspection_type": "general", "inspection_date": "2026-03-15", "mileage": "351000", "notes": ""}
     data.update(overrides)
     resp = client.post("/inspections/reports", data=data)
     assert resp.status_code == 302 and "/inspections/reports/" in resp.headers["Location"], flashes(client)

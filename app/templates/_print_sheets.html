@@ -77,7 +77,7 @@
 
 {% macro inspection_print_sheet(report, items, status_labels) %}
 <div class="print-only print-sheet">
-    <h2>Vehicle Inspection Report</h2>
+    <h2>{{ INSPECTION_TYPE_LABELS[report.inspection_type] }} Vehicle Inspection Report</h2>
     <table class="table table-bordered mb-3">
         <tbody>
             <tr>
@@ -97,8 +97,10 @@
                 <td>{% if report.mileage %}{{ report.mileage }}{% else %}<span class="fill-blank"></span>{% endif %}</td>
             </tr>
             <tr>
+                <th>Inspection Type</th>
+                <td>{{ INSPECTION_TYPE_LABELS[report.inspection_type] }}</td>
                 <th>Inspector</th>
-                <td colspan="3">{{ report.performed_by_name }}</td>
+                <td>{{ report.performed_by_name }}</td>
             </tr>
         </tbody>
     </table>

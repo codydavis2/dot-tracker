@@ -91,6 +91,16 @@ PERMISSIONS = {
 }
 
 
+# Which inspection types each role may submit on inspections.add_inspection_report.
+# Drivers do pre-trips only; a driver submitting another type gets a 403.
+INSPECTION_TYPE_ROLES = {
+    "pre_trip": EVERYONE,
+    "monthly": SHOP,
+    "annual": SHOP,
+    "general": SHOP,
+}
+
+
 def can(role, endpoint):
     """True if a user with this role (None = logged out) may use this endpoint."""
     allowed = PERMISSIONS.get(endpoint)
@@ -103,6 +113,10 @@ def can(role, endpoint):
     if allowed == ANY_LOGGED_IN:
         return True
     return role in allowed
+
+
+def can_submit_inspection(role, inspection_type):
+    return role in INSPECTION_TYPE_ROLES.get(inspection_type, ())
 
 
 def user_can(endpoint):

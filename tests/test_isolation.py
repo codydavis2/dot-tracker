@@ -106,7 +106,8 @@ def test_cannot_create_records_on_other_companys_vehicle(other_client, a, users,
     assert flashes(other_client) == ["Select a valid unit number."]
 
     resp = other_client.post("/inspections/reports",
-                             data={"vehicle_id": str(a["vehicle_id"]), "performed_by_user_id": b_owner})
+                             data={"vehicle_id": str(a["vehicle_id"]), "performed_by_user_id": b_owner,
+                                   "inspection_type": "general"})
     assert resp.headers["Location"] == "/inspections"
     assert flashes(other_client) == ["Select a valid unit number."]
     assert snapshot(query) == before

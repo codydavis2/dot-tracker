@@ -29,7 +29,8 @@ def a(client, query, users):
                            attachments=(io.BytesIO(b"company A secret"), "invoice.pdf"))
     closed_wo_id = add_work_order(client, query, vehicle_id, status="closed", description="Company A closed")
     attachment_id = query("SELECT id FROM work_order_attachments")[0]["id"]
-    report_id = add_inspection_report(client, query, vehicle_id, inspection_date="2026-03-15")
+    report_id = add_inspection_report(client, query, vehicle_id, inspection_date="2026-03-15",
+                                      inspection_type="pre_trip", status_0="out_of_spec")
     reminder_id = add_reminder(client, query, vehicle_id, due_date="2000-01-01")
     item_id = add_inventory_item(client, query, name="Company A part")
     client.post(f"/vehicles/{vehicle_id}/maintenance",
@@ -62,12 +63,15 @@ def a_resource_routes(a, users):
         ("GET", f"/work-orders/{wo}/attachments/{att}", None),
         ("POST", f"/work-orders/{wo}/attachments/{att}/delete", {}),
         ("GET", f"/inspections/reports/{a['report_id']}", None),
+        ("POST", f"/inspections/reports/{a['report_id']}/review", {"next": "dashboard"}),
+        ("GET", f"/work-orders?inspection_report_id={a['report_id']}", None),
+        ("POST", "/transfer-ownership", {"user_id": str(users["a_mechanic"]), "password": "pw123"}),
         ("POST", f"/reminders/{a['reminder_id']}/complete", {}),
         ("POST", f"/inventory/{a['item_id']}/edit", {"name": "hijacked"}),
     ]
 
 
-ROUTE_COUNT = 13
+ROUTE_COUNT = 16
 
 
 @pytest.mark.parametrize("index", range(ROUTE_COUNT))
@@ -91,7 +95,7 @@ def test_same_urls_work_for_the_owning_company(client, a):
     """Guards against the 404s above passing only because the routes are broken."""
     for url in [f"/vehicles/{a['vehicle_id']}", f"/work-orders/{a['wo_id']}",
                 f"/work-orders/{a['wo_id']}/attachments/{a['attachment_id']}",
-                f"/inspections/reports/{a['report_id']}"]:
+                f"/inspections/reports/{a['report_id']}", f"/work-orders?inspection_report_id={a['report_id']}"]:
         resp = client.get(url)
         assert resp.status_code == 200, url
         resp.close()
@@ -106,7 +110,8 @@ def test_cannot_create_records_on_other_companys_vehicle(other_client, a, users,
     assert flashes(other_client) == ["Select a valid unit number."]
 
     resp = other_client.post("/inspections/reports",
-                             data={"vehicle_id": str(a["vehicle_id"]), "performed_by_user_id": b_owner})
+                             data={"vehicle_id": str(a["vehicle_id"]), "performed_by_user_id": b_owner,
+                                   "inspection_type": "general"})
     assert resp.headers["Location"] == "/inspections"
     assert flashes(other_client) == ["Select a valid unit number."]
     assert snapshot(query) == before
@@ -125,6 +130,7 @@ def test_cannot_move_own_work_order_to_other_companys_vehicle(other_client, a, u
 def test_lists_and_dashboard_show_only_own_data(other_client, a, captured):
     resp = other_client.get("/")
     _, ctx = captured[-1]
+    assert ctx["alerts"] == []  # company A's red pre-trip doesn't alert company B
     assert ctx["vehicles"] == []
     assert ctx["dot_warnings"] == []
     assert ctx["open_work_orders"] == []

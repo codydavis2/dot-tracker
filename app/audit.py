@@ -2,16 +2,14 @@ from datetime import date, datetime
 
 from flask import Blueprint, flash, g, render_template, request
 
-from .constants import INSPECTION_STATUS_LABELS
+from .constants import INSPECTION_STATUS_LABELS, INSPECTION_TYPE_LABELS
 from .db import get_db
-from .helpers import login_required
 from .vehicles import vehicle_choices
 
 bp = Blueprint("audit", __name__)
 
 
 @bp.route("/audit")
-@login_required
 def audit():
     db = get_db()
     company_id = g.user["company_id"]
@@ -19,6 +17,8 @@ def audit():
 
     vehicle_id = request.args.get("vehicle_id") or ""
     doc_types = request.args.getlist("doc_type")
+    # Inspection types to include; none ticked means all types
+    inspection_types = [t for t in request.args.getlist("inspection_type") if t in INSPECTION_TYPE_LABELS]
     start_date = request.args.get("start_date") or ""
     end_date = request.args.get("end_date") or ""
 
@@ -47,7 +47,8 @@ def audit():
         # None means "all assets"; a vehicle id from another company also falls back to all of
         # *this* company's assets, so nothing outside the company is ever included.
         selected_vehicle_id = selected_vehicle["id"] if selected_vehicle else None
-        params = {"company_id": company_id, "start": start, "end": end, "vehicle_id": selected_vehicle_id}
+        params = {"company_id": company_id, "start": start, "end": end, "vehicle_id": selected_vehicle_id,
+                  "inspection_types": inspection_types or list(INSPECTION_TYPE_LABELS)}
 
         if "work_orders" in doc_types:
             wo_rows = db.execute(
@@ -119,6 +120,7 @@ def audit():
                     AND inspection_reports.deleted_at IS NULL
                     AND inspection_reports.inspection_date BETWEEN %(start)s AND %(end)s
                     AND (%(vehicle_id)s::bigint IS NULL OR inspection_reports.vehicle_id = %(vehicle_id)s)
+                    AND inspection_reports.inspection_type = ANY(%(inspection_types)s)
                 ORDER BY inspection_reports.inspection_date ASC, inspection_reports.id ASC
                 """,
                 params,
@@ -145,6 +147,7 @@ def audit():
         vehicles=vehicles,
         vehicle_id=vehicle_id,
         doc_types=doc_types,
+        inspection_types=inspection_types,
         start_date=start_date,
         end_date=end_date,
         ran_report=ran_report,

@@ -85,7 +85,8 @@ def test_archived_vehicles_hidden_from_lists_and_dropdowns(client, query, captur
         assert str(archived_id) not in values, page
 
     # ...and can't be picked by submitting its id anyway
-    resp = client.post("/inspections/reports", data={"vehicle_id": str(archived_id), "performed_by_user_id": "1"})
+    resp = client.post("/inspections/reports", data={"vehicle_id": str(archived_id), "performed_by_user_id": "1",
+                                                     "inspection_type": "general"})
     assert flashes(client) == ["Select a valid unit number."]
     assert query("SELECT * FROM inspection_reports") == []
 

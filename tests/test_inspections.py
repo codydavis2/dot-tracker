@@ -3,6 +3,7 @@ from datetime import date
 import pytest
 
 from app.constants import INSPECTION_CHECKLIST as CHECKLIST
+from app.constants import PRE_TRIP_CHECKLIST
 from conftest import add_inspection_report, add_reminder, add_vehicle, flashes, select_options
 
 
@@ -12,7 +13,9 @@ def test_inspections_page(client, captured, users):
     assert resp.status_code == 200
     name, ctx = captured[-1]
     assert name == "inspections.html"
-    assert ctx["checklist"] == CHECKLIST
+    assert ctx["inspection_types"] == ["pre_trip", "monthly", "annual", "general"]
+    assert ctx["checklist_groups"] == [("pre_trip", ["pre_trip"], PRE_TRIP_CHECKLIST),
+                                       ("monthly", ["monthly", "annual", "general"], CHECKLIST)]
     assert len(ctx["vehicles"]) == 1
     assert ctx["reports"] == []
     assert ctx["upcoming"] == []
@@ -29,6 +32,7 @@ def test_submit_report_with_out_of_spec_item(client, query, users):
     resp = client.post("/inspections/reports", data={
         "vehicle_id": str(vehicle_id),
         "performed_by_user_id": str(users["a_mechanic"]),
+        "inspection_type": "general",
         "inspection_date": "2026-03-15",
         "mileage": "351000",
         "notes": "Left steer tire low",
@@ -46,6 +50,8 @@ def test_submit_report_with_out_of_spec_item(client, query, users):
     assert report["performed_by_user_id"] == users["a_mechanic"]
     assert report["inspection_date"] == date(2026, 3, 15)
     assert report["mileage"] == 351000
+    assert report["inspection_type"] == "general"
+    assert report["reviewed_at"] is None
 
     items = query("SELECT item, status, comments, company_id FROM inspection_report_items ORDER BY id")
     assert [i["item"] for i in items] == CHECKLIST
@@ -59,24 +65,78 @@ def test_submit_report_with_out_of_spec_item(client, query, users):
 
 def test_submit_report_defaults_date_to_today(client, query, users):
     vehicle_id = add_vehicle(client)
-    client.post("/inspections/reports", data={"vehicle_id": str(vehicle_id),
+    client.post("/inspections/reports", data={"vehicle_id": str(vehicle_id), "inspection_type": "general",
                                               "performed_by_user_id": str(users["a_owner"])})
     assert query("SELECT inspection_date FROM inspection_reports")[0]["inspection_date"] == date.today()
 
 
 def test_submit_report_requires_inspector(client, query):
     vehicle_id = add_vehicle(client)
-    resp = client.post("/inspections/reports", data={"vehicle_id": str(vehicle_id)})
+    resp = client.post("/inspections/reports", data={"vehicle_id": str(vehicle_id), "inspection_type": "general"})
     assert resp.headers["Location"] == "/inspections"
     assert flashes(client) == ["Inspector is required."]
     assert query("SELECT * FROM inspection_reports") == []
 
 
 def test_submit_report_requires_valid_vehicle(client, query, users):
-    resp = client.post("/inspections/reports", data={"vehicle_id": "999", "performed_by_user_id": str(users["a_owner"])})
+    resp = client.post("/inspections/reports", data={"vehicle_id": "999", "inspection_type": "general",
+                                                     "performed_by_user_id": str(users["a_owner"])})
     assert resp.headers["Location"] == "/inspections"
     assert flashes(client) == ["Select a valid unit number."]
     assert query("SELECT * FROM inspection_reports") == []
+
+
+@pytest.mark.parametrize("inspection_type, checklist", [
+    ("pre_trip", PRE_TRIP_CHECKLIST), ("monthly", CHECKLIST), ("annual", CHECKLIST), ("general", CHECKLIST)])
+def test_server_picks_checklist_from_type(client, query, inspection_type, checklist):
+    vehicle_id = add_vehicle(client)
+    add_inspection_report(client, query, vehicle_id, inspection_type=inspection_type, status_1="out_of_spec")
+    assert query("SELECT inspection_type FROM inspection_reports")[0]["inspection_type"] == inspection_type
+    items = query("SELECT item, status FROM inspection_report_items ORDER BY id")
+    assert [i["item"] for i in items] == checklist
+    assert items[1]["status"] == "out_of_spec"
+
+
+def test_pre_trip_checklist_is_exactly_as_specified():
+    assert PRE_TRIP_CHECKLIST == [
+        "Service brakes (incl. trailer brake connections)", "Parking brake", "Air lines & gladhands", "Steering",
+        "Lights & reflectors", "Tires", "Wheels & rims", "Hubs", "Horn", "Windshield & wipers", "Mirrors",
+        "Coupling devices", "Fluid levels & leaks", "Emergency equipment",
+    ]
+
+
+@pytest.mark.parametrize("inspection_type", ["", "post_trip", None])
+def test_submit_report_requires_known_type(client, query, users, inspection_type):
+    vehicle_id = add_vehicle(client)
+    data = {"vehicle_id": str(vehicle_id), "performed_by_user_id": str(users["a_owner"])}
+    if inspection_type is not None:
+        data["inspection_type"] = inspection_type
+    resp = client.post("/inspections/reports", data=data)
+    assert resp.headers["Location"] == "/inspections"
+    assert flashes(client) == ["Choose an inspection type."]
+    assert query("SELECT * FROM inspection_reports") == []
+
+
+def test_tampered_checklist_fields_are_ignored(client, query):
+    vehicle_id = add_vehicle(client)
+    add_inspection_report(client, query, vehicle_id, inspection_type="pre_trip", **{
+        "item_0": "Flux capacitor", "items": "Fake item", "checklist": "general",
+        f"status_{len(PRE_TRIP_CHECKLIST)}": "out_of_spec", f"comments_{len(PRE_TRIP_CHECKLIST)}": "extra row",
+        "status_0": "needs_attention",
+    })
+    items = query("SELECT item, status, comments FROM inspection_report_items ORDER BY id")
+    assert [i["item"] for i in items] == PRE_TRIP_CHECKLIST
+    assert items[0]["status"] == "needs_attention"
+    assert "extra row" not in [i["comments"] for i in items]
+
+
+def test_type_shown_on_list_detail_and_print_sheet(client, query):
+    vehicle_id = add_vehicle(client)
+    report_id = add_inspection_report(client, query, vehicle_id, inspection_type="annual")
+    assert b"Annual" in client.get("/inspections").data
+    html = client.get(f"/inspections/reports/{report_id}").get_data(as_text=True)
+    assert "Annual Vehicle Inspection Report" in html  # print sheet
+    assert '<span class="badge bg-secondary">Annual</span>' in html
 
 
 def test_view_new_report_prompts_for_work_order(client, query, captured, users):
@@ -94,9 +154,9 @@ def test_view_new_report_prompts_for_work_order(client, query, captured, users):
     assert ctx["report"]["performed_by_name"] == "Mechanic A"
     assert len(ctx["items"]) == len(CHECKLIST)
     assert [i["item"] for i in ctx["out_of_spec_items"]] == ["Brakes"]
-    assert ctx["work_order_prefill_description"] == "Brakes: Pushrod out of adjustment"
     assert ctx["prompt_work_order"] is True
     assert b"Create a work order" in resp.data
+    assert f"/work-orders?inspection_report_id={report_id}".encode() in resp.data
     assert b"Mechanic A" in resp.data
 
 

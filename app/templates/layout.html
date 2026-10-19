@@ -12,19 +12,21 @@
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark px-3 no-print">
-        <a class="navbar-brand" href="/">DOT <span>Fleet</span> Tracker</a>
+        <a class="navbar-brand" href="{{ home_path(g.user.role) if g.user else '/' }}">DOT <span>Fleet</span> Tracker</a>
         {% if g.user %}
         <div class="ms-auto nav-links d-flex align-items-center flex-wrap">
             <a href="/account" class="navbar-text small me-2 {% if request.path.startswith('/account') %}active{% endif %}" title="My Account">{{ g.user.full_name }} · {{ g.user.company_name }}</a>
-            <a href="/vehicles" class="{% if request.path.startswith('/vehicles') %}active{% endif %}">Vehicles</a>
-            <a href="/work-orders" class="{% if request.path.startswith('/work-orders') %}active{% endif %}">Work Orders</a>
-            <a href="/inspections" class="{% if request.path.startswith('/inspections') %}active{% endif %}">Inspections</a>
-            <a href="/inventory" class="{% if request.path.startswith('/inventory') %}active{% endif %}">Inventory</a>
-            <a href="/audit" class="{% if request.path.startswith('/audit') %}active{% endif %}">Audit</a>
-            {# UX only — /users is protected by @role_required("owner") #}
-            {% if g.user.role == "owner" %}
-            <a href="/users" class="{% if request.path.startswith('/users') %}active{% endif %}">Users</a>
-            {% endif %}
+            {# Only the links this role can use (UX only — permissions.py is the security control) #}
+            {% for endpoint, path, label in [
+                ("vehicles.vehicles", "/vehicles", "Vehicles"),
+                ("work_orders.work_orders", "/work-orders", "Work Orders"),
+                ("inspections.inspections", "/inspections", "Inspections"),
+                ("inventory.inventory", "/inventory", "Inventory"),
+                ("audit.audit", "/audit", "Audit"),
+                ("users.index", "/users", "Users"),
+            ] if user_can(endpoint) %}
+            <a href="{{ path }}" class="{% if request.path.startswith(path) %}active{% endif %}">{{ label }}</a>
+            {% endfor %}
             <form action="/logout" method="post" class="d-inline m-0">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="logout-link">Log Out</button>

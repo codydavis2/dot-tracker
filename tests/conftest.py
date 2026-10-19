@@ -188,8 +188,18 @@ def login(client, email, password=PASSWORD):
 def logged_in_client(app, email):
     client = app.test_client()
     resp = login(client, email)
-    assert resp.headers["Location"] == "/", f"login failed for {email}"
+    # Drivers land on /inspections, everyone else on the dashboard
+    assert resp.headers["Location"] in ("/", "/inspections"), f"login failed for {email}"
     return client
+
+
+@pytest.fixture
+def roles(users, query):
+    """`users` plus a manager and a driver in company A (a_manager, a_driver)."""
+    ids = dict(users)
+    ids["a_manager"] = make_user(query, users["a_company"], "manager@a.example.com", "Manager A", "manager")
+    ids["a_driver"] = make_user(query, users["a_company"], "driver@a.example.com", "Driver A", "driver")
+    return ids
 
 
 @pytest.fixture
@@ -202,6 +212,18 @@ def client(app, users):
 def mechanic_client(app, users):
     """Logged in as company A's mechanic."""
     return logged_in_client(app, "mechanic@a.example.com")
+
+
+@pytest.fixture
+def manager_client(app, roles):
+    """Logged in as company A's manager."""
+    return logged_in_client(app, "manager@a.example.com")
+
+
+@pytest.fixture
+def driver_client(app, roles):
+    """Logged in as company A's driver."""
+    return logged_in_client(app, "driver@a.example.com")
 
 
 @pytest.fixture
@@ -259,7 +281,7 @@ def add_work_order(client, query, vehicle_id, **overrides):
 
 def add_inspection_report(client, query, vehicle_id, **overrides):
     data = {"vehicle_id": str(vehicle_id), "performed_by_user_id": str(current_user_id(client)),
-            "inspection_date": "2026-03-15", "mileage": "351000", "notes": ""}
+            "inspection_type": "general", "inspection_date": "2026-03-15", "mileage": "351000", "notes": ""}
     data.update(overrides)
     resp = client.post("/inspections/reports", data=data)
     assert resp.status_code == 302 and "/inspections/reports/" in resp.headers["Location"], flashes(client)

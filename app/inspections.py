@@ -2,21 +2,119 @@ from datetime import date
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request
 
-from .constants import INSPECTION_CHECKLIST, INSPECTION_STATUS_LABELS
+from .constants import CHECKLISTS, INSPECTION_STATUS_LABELS, INSPECTION_TYPE_LABELS
 from .db import get_db
-from .helpers import generate_reminder_dates, login_required, reminder_status
+from .helpers import generate_reminder_dates, reminder_status
 from .people import people_choices, validate_person
+from .permissions import can, can_submit_inspection
 from .vehicles import find_vehicle_for_form, get_vehicle_or_404, vehicle_choices
 
 bp = Blueprint("inspections", __name__)
 
 
+def needs_attention_reports(report_id=None):
+    """Inspection reports that "need attention" — red-item alerts — newest first, each
+    with its out-of-spec items. One report only if report_id is given.
+
+    Needs attention = at least one item Out of Spec, report not soft-deleted, no
+    linked work order that isn't soft-deleted, and not marked reviewed. Any type.
+    (Deleting the linked work order brings the alert back, unless reviewed.)
+    """
+    db = get_db()
+    company_id = g.user["company_id"]
+    reports = db.execute(
+        """
+        SELECT inspection_reports.id, inspection_reports.vehicle_id, inspection_reports.inspection_type,
+               inspection_reports.inspection_date,
+               vehicles.unit_number, vehicles.year, vehicles.make, vehicles.model,
+               performed_by.full_name AS performed_by_name
+        FROM inspection_reports
+        JOIN vehicles ON vehicles.id = inspection_reports.vehicle_id
+        JOIN users AS performed_by ON performed_by.id = inspection_reports.performed_by_user_id
+        WHERE inspection_reports.company_id = %(company_id)s
+            AND (%(report_id)s::bigint IS NULL OR inspection_reports.id = %(report_id)s)
+            AND inspection_reports.deleted_at IS NULL
+            AND inspection_reports.reviewed_at IS NULL
+            AND EXISTS (
+                SELECT 1 FROM inspection_report_items
+                WHERE inspection_report_items.inspection_report_id = inspection_reports.id
+                    AND inspection_report_items.company_id = inspection_reports.company_id
+                    AND inspection_report_items.status = 'out_of_spec'
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM work_orders
+                WHERE work_orders.inspection_report_id = inspection_reports.id
+                    AND work_orders.company_id = inspection_reports.company_id
+                    AND work_orders.deleted_at IS NULL
+            )
+        ORDER BY inspection_reports.inspection_date DESC, inspection_reports.id DESC
+        """,
+        {"company_id": company_id, "report_id": report_id},
+    ).fetchall()
+    if not reports:
+        return []
+
+    items_by_report = {}
+    for item in db.execute(
+        """
+        SELECT inspection_report_id, item, comments FROM inspection_report_items
+        WHERE company_id = %s AND inspection_report_id = ANY(%s) AND status = 'out_of_spec'
+        ORDER BY id
+        """,
+        (company_id, [r["id"] for r in reports]),
+    ).fetchall():
+        items_by_report.setdefault(item["inspection_report_id"], []).append(item)
+    return [{**r, "out_of_spec_items": items_by_report[r["id"]]} for r in reports]
+
+
+def get_report_or_404(report_id):
+    """The current company's (not deleted) inspection report, or a 404."""
+    report = get_db().execute(
+        "SELECT * FROM inspection_reports WHERE id = %s AND company_id = %s AND deleted_at IS NULL",
+        (report_id, g.user["company_id"]),
+    ).fetchone()
+    if report is None:
+        abort(404)
+    return report
+
+
+def out_of_spec_description(report_id):
+    """Work order description pre-filled from a report's Out of Spec items, one per line."""
+    items = get_db().execute(
+        """
+        SELECT item, comments FROM inspection_report_items
+        WHERE inspection_report_id = %s AND company_id = %s AND status = 'out_of_spec'
+        ORDER BY id
+        """,
+        (report_id, g.user["company_id"]),
+    ).fetchall()
+    return "\n".join(f"{i['item']}: {i['comments']}" if i["comments"] else i["item"] for i in items)
+
+
+def checklist_groups(inspection_types):
+    """The new-report form shows one checklist per distinct list, and the type
+    selector switches between them: [(group_key, [types], [items]), ...]."""
+    groups = []
+    for inspection_type in inspection_types:
+        items = CHECKLISTS[inspection_type]
+        for key, types, group_items in groups:
+            if group_items is items:
+                types.append(inspection_type)
+                break
+        else:
+            groups.append((inspection_type, [inspection_type], items))
+    return groups
+
+
 @bp.route("/inspections")
-@login_required
 def inspections():
     db = get_db()
     company_id = g.user["company_id"]
-    rows = db.execute(
+
+    # Scheduled-inspection reminders are shop data: only for roles that can work
+    # them (not drivers), and not even queried otherwise.
+    show_reminders = can(g.user["role"], "inspections.complete_reminder")
+    rows = [] if not show_reminders else db.execute(
         """
         SELECT inspection_reminders.*, vehicles.unit_number, vehicles.make, vehicles.model, vehicles.year,
                assigned_to.full_name AS assigned_to_name
@@ -63,21 +161,33 @@ def inspections():
         for r in report_rows
     ]
 
+    # Only the types this role may submit (drivers: pre-trip only)
+    inspection_types = [t for t in INSPECTION_TYPE_LABELS if can_submit_inspection(g.user["role"], t)]
+
     return render_template(
         "inspections.html",
         upcoming=upcoming,
+        show_reminders=show_reminders,
         vehicles=vehicle_choices(),
         people=people_choices(),
         reports=reports,
-        checklist=INSPECTION_CHECKLIST,
+        inspection_types=inspection_types,
+        checklist_groups=checklist_groups(inspection_types),
     )
 
 
 @bp.route("/inspections/reports", methods=["POST"])
-@login_required
 def add_inspection_report():
     db = get_db()
     company_id = g.user["company_id"]
+
+    inspection_type = request.form.get("inspection_type")
+    if inspection_type not in CHECKLISTS:
+        flash("Choose an inspection type.")
+        return redirect("/inspections")
+    if not can_submit_inspection(g.user["role"], inspection_type):
+        abort(403)
+
     vehicle_id = find_vehicle_for_form(request.form.get("vehicle_id"))
     if vehicle_id is None:
         flash("Select a valid unit number.")
@@ -94,16 +204,19 @@ def add_inspection_report():
 
     report = db.execute(
         """
-        INSERT INTO inspection_reports (company_id, vehicle_id, performed_by_user_id, inspection_date, mileage, notes)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO inspection_reports
+            (company_id, vehicle_id, performed_by_user_id, inspection_type, inspection_date, mileage, notes)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
-        (company_id, vehicle_id, performed_by, inspection_date, mileage, notes),
+        (company_id, vehicle_id, performed_by, inspection_type, inspection_date, mileage, notes),
     ).fetchone()
     report_id = report["id"]
 
+    # The checklist comes from the type, never from the form: only status_<n> and
+    # comments_<n> are read, for the items this type has. Anything else is ignored.
     items = []
-    for item_index, item in enumerate(INSPECTION_CHECKLIST):
+    for item_index, item in enumerate(CHECKLISTS[inspection_type]):
         status = request.form.get(f"status_{item_index}", "good")
         if status not in ("good", "needs_attention", "out_of_spec"):
             status = "good"
@@ -122,7 +235,6 @@ def add_inspection_report():
 
 
 @bp.route("/inspections/reports/<int:report_id>")
-@login_required
 def inspection_report_detail(report_id):
     db = get_db()
     company_id = g.user["company_id"]
@@ -152,10 +264,22 @@ def inspection_report_detail(report_id):
     ).fetchall()
 
     out_of_spec_items = [i for i in items if i["status"] == "out_of_spec"]
-    work_order_prefill_description = "\n".join(
-        f"{i['item']}: {i['comments']}" if i["comments"] else i["item"]
-        for i in out_of_spec_items
-    )
+
+    # Linked work orders and the red-item alert are for roles that create work
+    # orders only (not drivers); for anyone else they aren't even queried.
+    creates_work_orders = can(g.user["role"], "work_orders.create_work_order")
+    linked_work_orders = []
+    needs_attention = False
+    if creates_work_orders:
+        linked_work_orders = db.execute(
+            """
+            SELECT id, status, description FROM work_orders
+            WHERE inspection_report_id = %s AND company_id = %s AND deleted_at IS NULL
+            ORDER BY id
+            """,
+            (report_id, company_id),
+        ).fetchall()
+        needs_attention = bool(needs_attention_reports(report_id))
 
     return render_template(
         "inspection_report_detail.html",
@@ -163,15 +287,34 @@ def inspection_report_detail(report_id):
         items=items,
         status_labels=INSPECTION_STATUS_LABELS,
         out_of_spec_items=out_of_spec_items,
-        work_order_prefill_description=work_order_prefill_description,
-        prompt_work_order=(request.args.get("new") == "1" and bool(out_of_spec_items)),
+        linked_work_orders=linked_work_orders,
+        needs_attention=needs_attention,
+        prompt_work_order=(request.args.get("new") == "1" and needs_attention),
     )
+
+
+@bp.route("/inspections/reports/<int:report_id>/review", methods=["POST"])
+def mark_reviewed(report_id):
+    """Clear a red-item alert without a work order. Records only WHEN (reviewed_at),
+    deliberately not who or why."""
+    db = get_db()
+    get_report_or_404(report_id)
+    db.execute(
+        """
+        UPDATE inspection_reports SET reviewed_at = now()
+        WHERE id = %s AND company_id = %s AND reviewed_at IS NULL
+        """,
+        (report_id, g.user["company_id"]),
+    )
+    db.commit()
+    flash("Inspection marked reviewed.")
+    # Back to where the button was: the dashboard alert or the report page
+    return redirect("/" if request.form.get("next") == "dashboard" else f"/inspections/reports/{report_id}")
 
 
 # ---------- INSPECTION REMINDERS ----------
 
 @bp.route("/vehicles/<int:vehicle_id>/reminders", methods=["POST"])
-@login_required
 def add_reminder(vehicle_id):
     db = get_db()
     get_vehicle_or_404(vehicle_id)
@@ -219,7 +362,6 @@ def add_reminder(vehicle_id):
 
 
 @bp.route("/reminders/<int:reminder_id>/complete", methods=["POST"])
-@login_required
 def complete_reminder(reminder_id):
     db = get_db()
     row = db.execute(

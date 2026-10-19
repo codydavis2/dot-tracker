@@ -15,6 +15,19 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="row mb-3">
                 <div class="col-md-3">
+                    <label class="form-label" for="inspection-type">Inspection Type</label>
+                    <select class="form-select" name="inspection_type" id="inspection-type" required>
+                        {% if inspection_types|length > 1 %}
+                        <option value="" disabled selected>Select a type&hellip;</option>
+                        {% endif %}
+                        {% for t in inspection_types %}
+                        <option value="{{ t }}" {% if inspection_types|length == 1 %}selected{% endif %}>{{ INSPECTION_TYPE_LABELS[t] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="row mb-3">
+                <div class="col-md-3">
                     <label class="form-label">Unit Number</label>
                     <select class="form-select" name="vehicle_id" required>
                         <option value="" disabled selected>Select a unit&hellip;</option>
@@ -37,24 +50,30 @@
                 </div>
             </div>
 
-            <div class="mb-3">
-                {% for item in checklist %}
+            {# One checklist per distinct list; the type selector shows the matching one.
+               Hidden fieldsets are disabled, so their fields aren't submitted. The server
+               picks the checklist from the type either way (inspections.py). #}
+            {% for group, types, items in checklist_groups %}
+            {% set active = inspection_types|length == 1 and inspection_types[0] in types %}
+            <fieldset class="mb-3 checklist-group {% if not active %}d-none{% endif %}" data-types="{{ types|join(' ') }}" {% if not active %}disabled{% endif %}>
+                {% for item in items %}
                 <div class="border rounded p-3 mb-2">
                     <div class="fw-bold mb-2">{{ item }}</div>
                     <div class="btn-group mb-2" role="group" aria-label="{{ item }} status">
-                        <input type="radio" class="btn-check" name="status_{{ loop.index0 }}" id="status_{{ loop.index0 }}_good" value="good" autocomplete="off" checked>
-                        <label class="btn btn-outline-success" for="status_{{ loop.index0 }}_good">Good</label>
+                        <input type="radio" class="btn-check" name="status_{{ loop.index0 }}" id="{{ group }}_status_{{ loop.index0 }}_good" value="good" autocomplete="off" checked>
+                        <label class="btn btn-outline-success" for="{{ group }}_status_{{ loop.index0 }}_good">Good</label>
 
-                        <input type="radio" class="btn-check" name="status_{{ loop.index0 }}" id="status_{{ loop.index0 }}_attn" value="needs_attention" autocomplete="off">
-                        <label class="btn btn-outline-warning" for="status_{{ loop.index0 }}_attn">Needs Attention</label>
+                        <input type="radio" class="btn-check" name="status_{{ loop.index0 }}" id="{{ group }}_status_{{ loop.index0 }}_attn" value="needs_attention" autocomplete="off">
+                        <label class="btn btn-outline-warning" for="{{ group }}_status_{{ loop.index0 }}_attn">Needs Attention</label>
 
-                        <input type="radio" class="btn-check" name="status_{{ loop.index0 }}" id="status_{{ loop.index0 }}_oos" value="out_of_spec" autocomplete="off">
-                        <label class="btn btn-outline-danger" for="status_{{ loop.index0 }}_oos">Out of Spec</label>
+                        <input type="radio" class="btn-check" name="status_{{ loop.index0 }}" id="{{ group }}_status_{{ loop.index0 }}_oos" value="out_of_spec" autocomplete="off">
+                        <label class="btn btn-outline-danger" for="{{ group }}_status_{{ loop.index0 }}_oos">Out of Spec</label>
                     </div>
                     <input class="form-control form-control-sm" name="comments_{{ loop.index0 }}" placeholder="Comments (optional)">
                 </div>
                 {% endfor %}
-            </div>
+            </fieldset>
+            {% endfor %}
 
             <div class="mb-3">
                 <label class="form-label">Notes</label>
@@ -67,6 +86,7 @@
     </div>
 </div>
 
+{% if show_reminders %}
 <h4>Upcoming Inspections</h4>
 <ul class="list-group mb-4">
     {% for r in upcoming %}
@@ -87,6 +107,7 @@
     <li class="list-group-item text-muted">No upcoming inspections.</li>
     {% endfor %}
 </ul>
+{% endif %}
 
 <h4>Inspection Reports</h4>
 <ul class="list-group mb-4">
@@ -94,6 +115,7 @@
     <li class="list-group-item">
         <a href="/inspections/reports/{{ r.id }}" class="d-flex justify-content-between align-items-center text-decoration-none text-reset">
             <span>
+                <span class="badge bg-secondary me-1">{{ INSPECTION_TYPE_LABELS[r.inspection_type] }}</span>
                 {% if r.unit_number %}Unit {{ r.unit_number }}{% else %}(no unit #){% endif %} — {{ r.year }} {{ r.make }} {{ r.model }}
                 <div class="small text-muted mt-1">{{ r.inspection_date }} — Inspector: {{ r.performed_by_name }}</div>
             </span>
@@ -115,6 +137,15 @@
         });
         cancelBtn.addEventListener("click", function () {
             card.classList.add("d-none");
+        });
+
+        var typeSelect = document.getElementById("inspection-type");
+        typeSelect.addEventListener("change", function () {
+            document.querySelectorAll(".checklist-group").forEach(function (group) {
+                var match = group.dataset.types.split(" ").indexOf(typeSelect.value) !== -1;
+                group.classList.toggle("d-none", !match);
+                group.disabled = !match;
+            });
         });
     })();
 </script>

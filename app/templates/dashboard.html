@@ -1,6 +1,31 @@
 {% extends "layout.html" %}
 {% block title %}Dashboard{% endblock %}
 {% block main %}
+{% import "_forms.html" as forms %}
+
+{# Red-item alerts: only for roles that create work orders (dashboard.py doesn't
+   even query them otherwise). #}
+{% for a in alerts %}
+<div class="alert alert-danger">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div>
+            <strong>OUT OF SPEC:</strong>
+            <a href="/inspections/reports/{{ a.id }}" class="alert-link">{% if a.unit_number %}Unit {{ a.unit_number }}{% else %}{{ a.year }} {{ a.make }} {{ a.model }}{% endif %}</a>
+            — {{ INSPECTION_TYPE_LABELS[a.inspection_type] }} inspection {{ a.inspection_date }}
+            by {{ a.performed_by_name }}
+            <ul class="mb-0 mt-1">
+                {% for i in a.out_of_spec_items %}
+                <li>{{ i.item }}{% if i.comments %} — {{ i.comments }}{% endif %}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        <div class="d-flex gap-2 flex-shrink-0">
+            <a class="btn btn-sm btn-danger" href="/work-orders?inspection_report_id={{ a.id }}">Create work order</a>
+            {{ forms.mark_reviewed_button(a.id, "dashboard") }}
+        </div>
+    </div>
+</div>
+{% endfor %}
 
 {% if dot_warnings %}
     {% for w in dot_warnings %}

@@ -1,31 +1,35 @@
-"""User management (owner only): list users and pending invites, change roles,
-rename, deactivate and reactivate. Users are never deleted (CLAUDE.md rule 3).
+"""User management (owner and managers): list users and pending invites, change
+roles, rename, deactivate and reactivate. Users are never deleted (CLAUDE.md rule 3).
+Who may open these pages is decided in permissions.py.
 
-Nobody can be made owner here and the owner can't change their own role or
-deactivate themselves: ownership transfer is a separate flow (M3).
+Guardrails:
+  * Nobody can be made owner here (or by invite): ownership transfer is its own
+    owner-only flow (ownership.py).
+  * Nobody can change their own role or deactivate themselves.
+  * A manager can't touch the owner at all: to a manager the owner is not a
+    manageable user, so those routes answer 404, just like an unknown user.
 """
 from flask import Blueprint, abort, flash, g, redirect, render_template, request
 
 from .constants import ASSIGNABLE_ROLES
 from .db import get_db
-from .helpers import role_required
 
 bp = Blueprint("users", __name__)
 
 
-def _get_company_user(user_id):
-    """A user in the logged-in owner's company, or 404."""
+def _get_manageable_user(user_id):
+    """A user in the logged-in user's company that they may manage, or 404.
+    Only the owner may manage the owner (i.e. themselves: renaming)."""
     user = get_db().execute(
         "SELECT id, full_name, email, role, is_active FROM users WHERE id = %s AND company_id = %s",
         (user_id, g.user["company_id"]),
     ).fetchone()
-    if user is None:
+    if user is None or (user["role"] == "owner" and g.user["role"] != "owner"):
         abort(404)
     return user
 
 
 @bp.route("/users")
-@role_required("owner")
 def index():
     db = get_db()
     company_id = g.user["company_id"]
@@ -60,12 +64,11 @@ def index():
 
 
 @bp.route("/users/<int:user_id>/role", methods=["POST"])
-@role_required("owner")
 def change_role(user_id):
-    user = _get_company_user(user_id)
+    user = _get_manageable_user(user_id)
     role = request.form.get("role")
     if user["id"] == g.user["id"] or user["role"] == "owner":
-        flash("You can't change your own role. (Transferring ownership is not available yet.)")
+        flash("You can't change your own role. (The owner can hand over the company with Transfer ownership.)")
         return redirect("/users")
     if role not in ASSIGNABLE_ROLES:
         flash("Choose a role: manager, mechanic, or driver.")
@@ -82,9 +85,8 @@ def change_role(user_id):
 
 
 @bp.route("/users/<int:user_id>/name", methods=["POST"])
-@role_required("owner")
 def rename(user_id):
-    user = _get_company_user(user_id)
+    user = _get_manageable_user(user_id)
     full_name = (request.form.get("full_name") or "").strip()
     if not full_name:
         flash("Full name can't be blank.")
@@ -101,11 +103,10 @@ def rename(user_id):
 
 
 @bp.route("/users/<int:user_id>/deactivate", methods=["POST"])
-@role_required("owner")
 def deactivate(user_id):
     """They can't log in any more and are logged out everywhere right away (auth_version
     bump). Their name stays on every record they signed."""
-    user = _get_company_user(user_id)
+    user = _get_manageable_user(user_id)
     if user["id"] == g.user["id"] or user["role"] == "owner":
         flash("You can't deactivate your own account.")
         return redirect("/users")
@@ -121,9 +122,8 @@ def deactivate(user_id):
 
 
 @bp.route("/users/<int:user_id>/reactivate", methods=["POST"])
-@role_required("owner")
 def reactivate(user_id):
-    user = _get_company_user(user_id)
+    user = _get_manageable_user(user_id)
     db = get_db()
     db.execute(
         "UPDATE users SET is_active = true WHERE id = %s AND company_id = %s",

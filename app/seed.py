@@ -10,13 +10,14 @@ from psycopg.rows import dict_row
 from werkzeug.security import generate_password_hash
 
 from .config import NOT_CONFIGURED_MESSAGE
-from .constants import INSPECTION_CHECKLIST
+from .constants import CHECKLISTS
 
 DEMO_COMPANY_NAME = "Demo Fleet Co"
 
 DEMO_USERS = [
     # (email, full name, role)
     ("owner@demofleet.example.com", "Dana Owner", "owner"),
+    ("manager@demofleet.example.com", "Maria Chen", "manager"),
     ("mechanic@demofleet.example.com", "Mike Ramirez", "mechanic"),
     ("driver@demofleet.example.com", "Darrell Hughes", "driver"),
 ]
@@ -87,9 +88,10 @@ def seed_demo(conn, today=None):
          [("Oil filter", 1), ("Fuel filter", 2), ("Air filter", 1), ("15W-40 oil (gal)", 11)], None),
         ("104", "Replace cracked marker lamp, driver side", mechanic, 30, 0.5, [("LED marker lamp", 1)], None),
     ]
+    work_order_ids = {}
     for unit, description, assigned_to, closed_days_ago, hours, parts, due_in_days in work_orders:
         is_closed = closed_days_ago is not None
-        work_order_id = insert(
+        work_order_ids[description] = work_order_id = insert(
             """
             INSERT INTO work_orders
                 (company_id, vehicle_id, status, created_by_user_id, assigned_to_user_id, performed_by_user_id,
@@ -108,22 +110,41 @@ def seed_demo(conn, today=None):
                 (company_id, work_order_id, part_name, quantity),
             )
 
-    # Inspection reports: (unit, inspector, days ago, {checklist item: (status, comment)})
+    # Inspection reports:
+    # (unit, type, inspector, days ago, {checklist item: (status, comment)}, reviewed days ago, linked work order)
+    # The three red driver pre-trips show each way a red item can stand: the 102 one has
+    # no work order and isn't reviewed, so it's a red alert on the dashboard; 101's is
+    # linked to a work order; 202's was marked reviewed.
     reports = [
-        ("101", driver, 1, {"Brakes": ("out_of_spec", "RR chamber leaking, audible air leak")}),
-        ("103", mechanic, 5, {"Tires": ("needs_attention", "LF steer tire cupping")}),
-        ("102", mechanic, 14, {}),
+        ("102", "pre_trip", driver, 0, {"Tires": ("out_of_spec", "RF steer tire, bulge in sidewall"),
+                                        "Lights & reflectors": ("needs_attention", "Reflective tape peeling")},
+         None, None),
+        ("101", "pre_trip", driver, 1,
+         {"Service brakes (incl. trailer brake connections)": ("out_of_spec", "RR chamber leaking, audible air leak")},
+         None, "Replace RR brake chamber — air leak found on pre-trip"),
+        ("202", "pre_trip", driver, 3, {"Windshield & wipers": ("out_of_spec", "Driver side wiper blade torn")},
+         2, None),
+        ("104", "pre_trip", driver, 2, {}, None, None),
+        ("103", "monthly", mechanic, 5, {"Tires": ("needs_attention", "LF steer tire cupping")}, None, None),
+        ("102", "annual", mechanic, 14, {}, None, None),
     ]
-    for unit, inspector, days_ago, flagged in reports:
+    for unit, inspection_type, inspector, days_ago, flagged, reviewed_days_ago, work_order in reports:
         report_id = insert(
             """
-            INSERT INTO inspection_reports (company_id, vehicle_id, performed_by_user_id, inspection_date, mileage)
-            VALUES (%s, %s, %s, %s, %s) RETURNING id
+            INSERT INTO inspection_reports
+                (company_id, vehicle_id, performed_by_user_id, inspection_type, inspection_date, mileage, reviewed_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
             """,
-            (company_id, vehicle_ids[unit], inspector, today - timedelta(days=days_ago),
-             next(v[5] for v in DEMO_VEHICLES if v[0] == unit)),
+            (company_id, vehicle_ids[unit], inspector, inspection_type, today - timedelta(days=days_ago),
+             next(v[5] for v in DEMO_VEHICLES if v[0] == unit),
+             now - timedelta(days=reviewed_days_ago) if reviewed_days_ago is not None else None),
         )
-        for item in INSPECTION_CHECKLIST:
+        if work_order:
+            conn.execute(
+                "UPDATE work_orders SET inspection_report_id = %s WHERE id = %s AND company_id = %s",
+                (report_id, work_order_ids[work_order], company_id),
+            )
+        for item in CHECKLISTS[inspection_type]:
             status, comments = flagged.get(item, ("good", None))
             conn.execute(
                 """

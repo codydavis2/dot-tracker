@@ -4,8 +4,9 @@ import psycopg
 from flask import Blueprint, abort, flash, g, redirect, render_template, request
 
 from .db import get_db
-from .helpers import login_required, reminder_status
+from .helpers import reminder_status
 from .people import people_choices, validate_person
+from .permissions import can
 
 bp = Blueprint("vehicles", __name__)
 
@@ -51,66 +52,86 @@ def get_vehicle_or_404(vehicle_id):
     return vehicle
 
 
-@bp.route("/vehicles", methods=["GET", "POST"])
-@login_required
+@bp.route("/vehicles")
 def vehicles():
-    db = get_db()
-    company_id = g.user["company_id"]
-
-    if request.method == "POST":
-        unit_number = request.form.get("unit_number") or None
-        make = request.form.get("make")
-        model = request.form.get("model")
-        year = request.form.get("year")
-        vin = request.form.get("vin") or None
-        mileage = request.form.get("mileage") or 0
-        is_dot = bool(request.form.get("is_dot_regulated"))
-        gvwr = request.form.get("gvwr") or None
-
-        if not make or not model or not year:
-            flash("Make, model, and year are required.")
-            return redirect("/vehicles")
-
-        try:
-            vehicle = db.execute(
-                """
-                INSERT INTO vehicles (company_id, unit_number, make, model, year, vin, mileage, is_dot_regulated, gvwr)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-                """,
-                (company_id, unit_number, make, model, year, vin, mileage, is_dot, gvwr),
-            ).fetchone()
-        except psycopg.errors.UniqueViolation as e:
-            db.rollback()
-            if e.diag.constraint_name == "vehicles_company_vin_key":
-                flash(f"VIN \"{vin}\" is already in use.")
-            else:
-                flash(f"Unit number \"{unit_number}\" is already in use.")
-            return redirect("/vehicles")
-        vehicle_id = vehicle["id"]
-
-        # If flagged DOT-regulated, create an empty dot_details row to fill in later
-        if is_dot:
-            db.execute(
-                "INSERT INTO dot_details (company_id, vehicle_id) VALUES (%s, %s)", (company_id, vehicle_id)
-            )
-
-        db.commit()
-        return redirect(f"/vehicles/{vehicle_id}")
-
-    rows = db.execute(
+    rows = get_db().execute(
         "SELECT * FROM vehicles WHERE company_id = %s AND archived_at IS NULL ORDER BY id",
-        (company_id,),
+        (g.user["company_id"],),
     ).fetchall()
     return render_template("vehicles.html", vehicles=rows)
 
 
+@bp.route("/vehicles", methods=["POST"])
+def add_vehicle():
+    db = get_db()
+    company_id = g.user["company_id"]
+
+    unit_number = request.form.get("unit_number") or None
+    make = request.form.get("make")
+    model = request.form.get("model")
+    year = request.form.get("year")
+    vin = request.form.get("vin") or None
+    mileage = request.form.get("mileage") or 0
+    is_dot = bool(request.form.get("is_dot_regulated"))
+    gvwr = request.form.get("gvwr") or None
+
+    if not make or not model or not year:
+        flash("Make, model, and year are required.")
+        return redirect("/vehicles")
+
+    try:
+        vehicle = db.execute(
+            """
+            INSERT INTO vehicles (company_id, unit_number, make, model, year, vin, mileage, is_dot_regulated, gvwr)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (company_id, unit_number, make, model, year, vin, mileage, is_dot, gvwr),
+        ).fetchone()
+    except psycopg.errors.UniqueViolation as e:
+        db.rollback()
+        if e.diag.constraint_name == "vehicles_company_vin_key":
+            flash(f"VIN \"{vin}\" is already in use.")
+        else:
+            flash(f"Unit number \"{unit_number}\" is already in use.")
+        return redirect("/vehicles")
+    vehicle_id = vehicle["id"]
+
+    # If flagged DOT-regulated, create an empty dot_details row to fill in later
+    if is_dot:
+        db.execute(
+            "INSERT INTO dot_details (company_id, vehicle_id) VALUES (%s, %s)", (company_id, vehicle_id)
+        )
+
+    db.commit()
+    return redirect(f"/vehicles/{vehicle_id}")
+
+
 @bp.route("/vehicles/<int:vehicle_id>")
-@login_required
 def vehicle_detail(vehicle_id):
     db = get_db()
     company_id = g.user["company_id"]
     vehicle = get_vehicle_or_404(vehicle_id)
+
+    inspection_reports = db.execute(
+        """
+        SELECT inspection_reports.id, inspection_reports.inspection_type, inspection_reports.inspection_date,
+               performed_by.full_name AS performed_by_name
+        FROM inspection_reports
+        JOIN users AS performed_by ON performed_by.id = inspection_reports.performed_by_user_id
+        WHERE inspection_reports.vehicle_id = %s AND inspection_reports.company_id = %s
+            AND inspection_reports.deleted_at IS NULL
+        ORDER BY inspection_reports.inspection_date DESC, inspection_reports.id DESC
+        """,
+        (vehicle_id, company_id),
+    ).fetchall()
+
+    # Roles that can't work on work orders (drivers) get the basic vehicle info and
+    # its inspections only. The shop data below is not even queried for them, so it
+    # can't leak through the template.
+    if not can(g.user["role"], "work_orders.work_orders"):
+        return render_template("vehicle_detail.html", vehicle=vehicle, inspection_reports=inspection_reports,
+                               shop_view=False)
 
     dot_details = None
     if vehicle["is_dot_regulated"]:
@@ -145,6 +166,8 @@ def vehicle_detail(vehicle_id):
     return render_template(
         "vehicle_detail.html",
         vehicle=vehicle,
+        inspection_reports=inspection_reports,
+        shop_view=True,
         dot_details=dot_details,
         reminders=reminders_with_status,
         work_orders=work_order_rows,
@@ -155,7 +178,6 @@ def vehicle_detail(vehicle_id):
 # ---------- MAINTENANCE LOGS ----------
 
 @bp.route("/vehicles/<int:vehicle_id>/maintenance", methods=["POST"])
-@login_required
 def add_maintenance(vehicle_id):
     db = get_db()
     company_id = g.user["company_id"]
@@ -209,7 +231,6 @@ def add_maintenance(vehicle_id):
 # ---------- DTC CODES ----------
 
 @bp.route("/vehicles/<int:vehicle_id>/dtc", methods=["POST"])
-@login_required
 def add_dtc(vehicle_id):
     db = get_db()
     get_vehicle_or_404(vehicle_id)

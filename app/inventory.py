@@ -1,13 +1,11 @@
 from flask import Blueprint, abort, flash, g, redirect, render_template, request
 
 from .db import get_db
-from .helpers import login_required
 
 bp = Blueprint("inventory", __name__)
 
 
 @bp.route("/inventory", methods=["GET", "POST"])
-@login_required
 def inventory():
     db = get_db()
     company_id = g.user["company_id"]
@@ -52,7 +50,6 @@ def inventory():
 
 
 @bp.route("/inventory/<int:item_id>/edit", methods=["POST"])
-@login_required
 def edit_inventory_item(item_id):
     db = get_db()
     company_id = g.user["company_id"]

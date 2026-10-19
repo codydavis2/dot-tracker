@@ -6,6 +6,6 @@
 {% if reset_link %}
 <p><a href="/forgot-password">Request a new reset link</a></p>
 {% else %}
-<p><a href="/">Back to the start page</a></p>
+<p><a href="{{ home_path(g.user.role) if g.user else '/' }}">Back to the start page</a></p>
 {% endif %}
 {% endblock %}

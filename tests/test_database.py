@@ -56,11 +56,45 @@ def test_child_rows_cannot_cross_companies(query, two_companies):
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
         query(
             """
-            INSERT INTO inspection_reports (company_id, vehicle_id, performed_by_user_id)
-            VALUES (%s, %s, %s)
+            INSERT INTO inspection_reports (company_id, vehicle_id, performed_by_user_id, inspection_type)
+            VALUES (%s, %s, %s, 'general')
             """,
             (ids["a_company"], ids["a_vehicle"], ids["b_owner"]),
         )
+
+
+def make_report(query, ids, key):
+    return query(
+        """
+        INSERT INTO inspection_reports (company_id, vehicle_id, performed_by_user_id, inspection_type)
+        VALUES (%s, %s, %s, 'pre_trip') RETURNING id
+        """,
+        (ids[f"{key}_company"], ids[f"{key}_vehicle"], ids[f"{key}_owner"]),
+    )[0]["id"]
+
+
+def test_inspection_type_is_required_and_checked(query, two_companies):
+    ids = two_companies
+    with pytest.raises(psycopg.errors.NotNullViolation):
+        query("INSERT INTO inspection_reports (company_id, vehicle_id, performed_by_user_id) VALUES (%s, %s, %s)",
+              (ids["a_company"], ids["a_vehicle"], ids["a_owner"]))
+    with pytest.raises(psycopg.errors.CheckViolation):
+        query(
+            """
+            INSERT INTO inspection_reports (company_id, vehicle_id, performed_by_user_id, inspection_type)
+            VALUES (%s, %s, %s, 'post_trip')
+            """,
+            (ids["a_company"], ids["a_vehicle"], ids["a_owner"]),
+        )
+
+
+def test_work_order_cannot_link_another_companys_inspection(query, two_companies):
+    ids = two_companies
+    b_report = make_report(query, ids, "b")
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        query("UPDATE work_orders SET inspection_report_id = %s WHERE id = %s", (b_report, ids["a_work_order"]))
+    a_report = make_report(query, ids, "a")
+    query("UPDATE work_orders SET inspection_report_id = %s WHERE id = %s", (a_report, ids["a_work_order"]))
 
 
 def test_only_one_owner_per_company(query, users):

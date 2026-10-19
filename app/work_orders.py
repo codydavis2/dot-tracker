@@ -7,7 +7,7 @@ from flask import Blueprint, abort, current_app, flash, g, redirect, render_temp
 from werkzeug.utils import secure_filename
 
 from .db import get_db
-from .helpers import login_required
+from .inspections import get_report_or_404, out_of_spec_description
 from .people import people_choices, validate_person
 from .vehicles import find_vehicle_for_form, vehicle_choices
 
@@ -115,6 +115,28 @@ def read_work_order_form(current=None):
     }, None
 
 
+def read_inspection_link(vehicle_id):
+    """The inspection_report_id hidden field on the create form (set when the work
+    order comes from a red-item alert). Returns (report_id or None, error or None).
+    It must be one of this company's (not deleted) reports, for the same unit."""
+    value = request.form.get("inspection_report_id")
+    if not value:
+        return None, None
+    try:
+        report_id = int(value)
+    except ValueError:
+        return None, "That inspection report wasn't found."
+    report = get_db().execute(
+        "SELECT id, vehicle_id FROM inspection_reports WHERE id = %s AND company_id = %s AND deleted_at IS NULL",
+        (report_id, g.user["company_id"]),
+    ).fetchone()
+    if report is None:
+        return None, "That inspection report wasn't found."
+    if report["vehicle_id"] != vehicle_id:
+        return None, "The work order must be for the same unit as the inspection it comes from."
+    return report_id, None
+
+
 def vehicles_json_for(vehicles):
     return json.dumps({
         str(v["id"]): {"year": v["year"], "make": v["make"], "model": v["model"], "vin": v["vin"]}
@@ -136,46 +158,10 @@ def get_work_order_or_404(work_order_id):
     return work_order
 
 
-@bp.route("/work-orders", methods=["GET", "POST"])
-@login_required
+@bp.route("/work-orders")
 def work_orders():
     db = get_db()
     company_id = g.user["company_id"]
-
-    if request.method == "POST":
-        values, error = read_work_order_form()
-        if error:
-            flash(error)
-            return redirect("/work-orders")
-
-        closed_at = datetime.now(timezone.utc) if values["status"] == "closed" else None
-
-        work_order = db.execute(
-            """
-            INSERT INTO work_orders
-                (company_id, vehicle_id, status, created_by_user_id, assigned_to_user_id, performed_by_user_id,
-                 description, notes, hours, scheduled_completion_date, closed_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            (company_id, values["vehicle_id"], values["status"], values["created_by_user_id"],
-             values["assigned_to_user_id"], values["performed_by_user_id"], values["description"],
-             values["notes"], values["hours"], values["scheduled_completion_date"], closed_at),
-        ).fetchone()
-        work_order_id = work_order["id"]
-
-        parts = read_parts_form(company_id, work_order_id)
-        if parts:
-            db.cursor().executemany(
-                "INSERT INTO work_order_parts (company_id, work_order_id, part_name, quantity) VALUES (%s, %s, %s, %s)",
-                parts,
-            )
-
-        save_work_order_attachments(db, work_order_id, request.files.getlist("attachments"))
-
-        db.commit()
-        return redirect("/work-orders")
-
     vehicles = vehicle_choices()
 
     work_order_rows = db.execute(
@@ -192,6 +178,19 @@ def work_orders():
     open_work_orders = [w for w in work_order_rows if w["status"] == "open"]
     closed_work_orders = [w for w in work_order_rows if w["status"] == "closed"]
 
+    # ?inspection_report_id=N (from a red-item alert or the post-inspection prompt):
+    # open the new work order form pre-filled from that report's Out of Spec items
+    # and linked to it. Another company's report is a 404.
+    from_report = None
+    prefill_description = None
+    if request.args.get("inspection_report_id"):
+        try:
+            report_id = int(request.args["inspection_report_id"])
+        except ValueError:
+            abort(404)
+        from_report = get_report_or_404(report_id)
+        prefill_description = out_of_spec_description(report_id)
+
     return render_template(
         "work_orders.html",
         vehicles=vehicles,
@@ -199,13 +198,55 @@ def work_orders():
         people=people_choices(),
         open_work_orders=open_work_orders,
         closed_work_orders=closed_work_orders,
-        prefill_vehicle_id=request.args.get("vehicle_id"),
-        prefill_description=request.args.get("description"),
+        from_report=from_report,
+        prefill_vehicle_id=from_report["vehicle_id"] if from_report else None,
+        prefill_description=prefill_description,
     )
 
 
+@bp.route("/work-orders", methods=["POST"])
+def create_work_order():
+    db = get_db()
+    company_id = g.user["company_id"]
+
+    values, error = read_work_order_form()
+    if error is None:
+        inspection_report_id, error = read_inspection_link(values["vehicle_id"])
+    if error:
+        flash(error)
+        return redirect("/work-orders")
+
+    closed_at = datetime.now(timezone.utc) if values["status"] == "closed" else None
+
+    work_order = db.execute(
+        """
+        INSERT INTO work_orders
+            (company_id, vehicle_id, status, created_by_user_id, assigned_to_user_id, performed_by_user_id,
+             description, notes, hours, scheduled_completion_date, closed_at, inspection_report_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (company_id, values["vehicle_id"], values["status"], values["created_by_user_id"],
+         values["assigned_to_user_id"], values["performed_by_user_id"], values["description"],
+         values["notes"], values["hours"], values["scheduled_completion_date"], closed_at,
+         inspection_report_id),
+    ).fetchone()
+    work_order_id = work_order["id"]
+
+    parts = read_parts_form(company_id, work_order_id)
+    if parts:
+        db.cursor().executemany(
+            "INSERT INTO work_order_parts (company_id, work_order_id, part_name, quantity) VALUES (%s, %s, %s, %s)",
+            parts,
+        )
+
+    save_work_order_attachments(db, work_order_id, request.files.getlist("attachments"))
+
+    db.commit()
+    return redirect("/work-orders")
+
+
 @bp.route("/work-orders/<int:work_order_id>")
-@login_required
 def work_order_detail(work_order_id):
     db = get_db()
     company_id = g.user["company_id"]
@@ -257,7 +298,6 @@ def work_order_detail(work_order_id):
 
 
 @bp.route("/work-orders/<int:work_order_id>/close", methods=["POST"])
-@login_required
 def close_work_order(work_order_id):
     db = get_db()
     get_work_order_or_404(work_order_id)
@@ -280,7 +320,6 @@ def close_work_order(work_order_id):
 
 
 @bp.route("/work-orders/<int:work_order_id>/delete", methods=["POST"])
-@login_required
 def delete_work_order(work_order_id):
     """Soft delete: the work order is hidden everywhere but kept (with its parts and
     attachment files) for the compliance record."""
@@ -298,7 +337,6 @@ def delete_work_order(work_order_id):
 
 
 @bp.route("/work-orders/<int:work_order_id>/edit", methods=["POST"])
-@login_required
 def edit_work_order(work_order_id):
     db = get_db()
     company_id = g.user["company_id"]
@@ -363,7 +401,6 @@ def get_attachment_or_404(work_order_id, attachment_id):
 
 
 @bp.route("/work-orders/<int:work_order_id>/attachments/<int:attachment_id>")
-@login_required
 def download_attachment(work_order_id, attachment_id):
     attachment = get_attachment_or_404(work_order_id, attachment_id)
 
@@ -377,7 +414,6 @@ def download_attachment(work_order_id, attachment_id):
 
 
 @bp.route("/work-orders/<int:work_order_id>/attachments/<int:attachment_id>/delete", methods=["POST"])
-@login_required
 def delete_attachment(work_order_id, attachment_id):
     db = get_db()
     attachment = get_attachment_or_404(work_order_id, attachment_id)

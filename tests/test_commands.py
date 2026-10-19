@@ -18,7 +18,7 @@ def test_seed_demo(app, query):
     company = query("SELECT * FROM companies")[0]
     assert company["name"] == "Demo Fleet Co"
     roles = sorted(u["role"] for u in query("SELECT role FROM users"))
-    assert roles == ["driver", "mechanic", "owner"]
+    assert roles == ["driver", "manager", "mechanic", "owner"]
     vehicles = query("SELECT * FROM vehicles")
     assert len(vehicles) == 6
     assert {v["is_dot_regulated"] for v in vehicles} == {True, False}
@@ -34,7 +34,30 @@ def test_seed_demo(app, query):
     client = app.test_client()
     resp = client.post("/login", data={"email": "owner@demofleet.example.com", "password": password.strip()})
     assert resp.headers["Location"] == "/"
-    assert client.get("/").status_code == 200
+    html = client.get("/").get_data(as_text=True)
+
+    # Driver pre-trips: one red alert (no work order, not reviewed), one red linked to a
+    # work order, one red marked reviewed
+    pre_trips = query(
+        """
+        SELECT r.id, r.reviewed_at, v.unit_number,
+               EXISTS (SELECT 1 FROM inspection_report_items i
+                       WHERE i.inspection_report_id = r.id AND i.status = 'out_of_spec') AS red,
+               EXISTS (SELECT 1 FROM work_orders w WHERE w.inspection_report_id = r.id) AS linked
+        FROM inspection_reports r
+        JOIN users u ON u.id = r.performed_by_user_id
+        JOIN vehicles v ON v.id = r.vehicle_id
+        WHERE r.inspection_type = 'pre_trip' AND u.role = 'driver'
+        """
+    )
+    red = {r["unit_number"]: r for r in pre_trips if r["red"]}
+    assert red["102"]["linked"] is False and red["102"]["reviewed_at"] is None
+    assert red["101"]["linked"] is True
+    assert red["202"]["reviewed_at"] is not None and red["202"]["linked"] is False
+    assert {r["inspection_type"] for r in query("SELECT inspection_type FROM inspection_reports")} == {
+        "pre_trip", "monthly", "annual"}
+    assert html.count("OUT OF SPEC:") == 1
+    assert "RF steer tire, bulge in sidewall" in html
 
 
 def test_seed_demo_refuses_to_run_twice(app, query):

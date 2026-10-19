@@ -2,7 +2,12 @@
 {% block title %}Users{% endblock %}
 {% block main %}
 
-<h2 class="mb-3">Users</h2>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Users</h2>
+    {% if user_can("ownership.transfer_ownership") %}
+    <a class="btn btn-outline-danger" href="/transfer-ownership">Transfer Ownership</a>
+    {% endif %}
+</div>
 
 <div class="card mb-4">
     <div class="card-header">Invite a User</div>
@@ -36,18 +41,25 @@
     </thead>
     <tbody>
         {% for u in active_users %}
+        {# Mirrors the guardrails in users.py (UX only): managers can't touch the
+           owner, and nobody changes their own role or deactivates themselves. #}
+        {% set manageable = g.user.role == "owner" or u.role != "owner" %}
         <tr>
             <td>
+                {% if manageable %}
                 <form action="/users/{{ u.id }}/name" method="post" class="d-flex gap-1 m-0">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input class="form-control form-control-sm" name="full_name" value="{{ u.full_name }}" required aria-label="Full name">
                     <button class="btn btn-sm btn-outline-secondary" type="submit">Rename</button>
                 </form>
+                {% else %}
+                {{ u.full_name }}
+                {% endif %}
             </td>
             <td>{{ u.email }}</td>
             <td>
-                {% if u.role == "owner" %}
-                Owner{% if u.id == g.user.id %} (you){% endif %}
+                {% if u.role == "owner" or u.id == g.user.id %}
+                {{ ROLE_LABELS[u.role] }}{% if u.id == g.user.id %} (you){% endif %}
                 {% else %}
                 <form action="/users/{{ u.id }}/role" method="post" class="d-flex gap-1 m-0">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -62,7 +74,7 @@
             </td>
             <td>{{ u.last_login_at | datetime or "Never" }}</td>
             <td>
-                {% if u.role != "owner" %}
+                {% if u.role != "owner" and u.id != g.user.id %}
                 <form action="/users/{{ u.id }}/deactivate" method="post" class="m-0"
                       onsubmit="return confirm('Deactivate this user? They will be logged out and unable to log in.');">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
